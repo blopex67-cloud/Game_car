@@ -35,7 +35,7 @@ jobs:
           {
             "name": "uv-studio",
             "private": true,
-            "version": "3.0.0",
+            "version": "3.0.1",
             "type": "module",
             "scripts": {
               "dev": "vite",
@@ -448,8 +448,8 @@ jobs:
             display: none;
           }
           .stage canvas.show { display: block; }
-          .stage canvas.overlay { display: block; pointer-events: none; }
-          .stage canvas.overlay.hide { display: none !important; }
+          .stage canvas.uvlines { display: block; pointer-events: none; }
+          .stage canvas.uvlines.hide { display: none !important; }
 
           .right { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
           .viewport { position: relative; flex: 1.2; min-height: 0; overflow: hidden; background: #0a0c10; }
@@ -700,7 +700,7 @@ jobs:
           }
           const overlay = document.createElement('canvas');
           overlay.width = overlay.height = S;
-          overlay.className = 'overlay';
+          overlay.className = 'uvlines';
           const wrap = $('wrap');
           const stage = $('stage');
           for (const k of MAP_KEYS) stage.appendChild(canvases[k]);
@@ -1803,7 +1803,6 @@ jobs:
           $('btnGLB').addEventListener('click', exportGLB);
           $('btnZIP').addEventListener('click', exportZIP);
           $('btnReuv').addEventListener('click', reUnwrap);
-          $('btnImgDummy')?.addEventListener('click', () => {});
 
           // ---------- Vista de editor: zoom, paneo y pintura ----------
           const view = { s: 1, x: 0, y: 0 };
@@ -1918,6 +1917,12 @@ jobs:
           }, { passive: false });
 
           $('btnFit').addEventListener('click', resetView);
+
+          $('btnFocus').addEventListener('click', (e) => {
+            const on = $('body').classList.toggle('focus');
+            e.currentTarget.textContent = on ? 'Mostrar paneles' : 'Enfocar UV';
+            requestAnimationFrame(layoutStage);
+          });
 
           // ---------- Rueda de color ----------
           const wheel = $('wheel');
@@ -2097,11 +2102,6 @@ jobs:
           $('btnBake').addEventListener('click', () => { bakeNormal(); scheduleSave(); });
 
           $('showUV').addEventListener('change', (e) => overlay.classList.toggle('hide', !e.target.checked));
-
-          $('btnFocus').addEventListener('click', (e) => {
-            const on = $('body').classList.toggle('focus');
-            e.currentTarget.textContent = on ? 'Mostrar paneles' : 'Enfocar UV';
-          });
 
           // ---------- Render ----------
           const viewport3D = new ResizeObserver(() => {
