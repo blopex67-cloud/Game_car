@@ -1,1 +1,1202 @@
+name: Subaru Racing APK
 
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/subaru_racing.yml'
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Buscar los modelos .glb en el repositorio
+        run: |
+          set -e
+          mkdir -p game/models
+          for f in 2006_subaru_impreza_wrx_sti.glb circuito_forza.glb; do
+            p=$(find . -path ./game -prune -o -type f -iname "$f" -print | head -n 1)
+            if [ -z "$p" ]; then
+              echo "::error::Falta $f en el repositorio. Subelo a cualquier carpeta del repo."
+              exit 1
+            fi
+            echo "Encontrado: $p"
+            cp "$p" "game/models/$f"
+          done
+          ls -la game/models
+
+      - name: Crear proyecto Godot (configuracion)
+        run: |
+          set -e
+          mkdir -p game
+          cat > game/project.godot <<'EOF'
+          ; Engine configuration file.
+          config_version=5
+
+          [application]
+
+          config/name="Subaru Racing"
+          run/main_scene="res://main.tscn"
+          config/features=PackedStringArray("4.3", "GL Compatibility")
+          config/icon="res://icon.svg"
+
+          [display]
+
+          window/size/viewport_width=1280
+          window/size/viewport_height=720
+          window/stretch/mode="canvas_items"
+          window/stretch/aspect="expand"
+          window/handheld/orientation=4
+
+          [input_devices]
+
+          pointing/emulate_mouse_from_touch=false
+
+          [physics]
+
+          common/physics_ticks_per_second=120
+          common/max_physics_steps_per_frame=8
+
+          [rendering]
+
+          renderer/rendering_method="gl_compatibility"
+          renderer/rendering_method.mobile="gl_compatibility"
+          textures/vram_compression/import_etc2_astc=true
+          textures/default_filters/anisotropic_filtering_level=2
+          anti_aliasing/quality/msaa_3d=1
+          lights_and_shadows/directional_shadow/size=2048
+          environment/defaults/default_clear_color=Color(0.5, 0.65, 0.85, 1)
+          EOF
+          cat > game/export_presets.cfg <<'EOF'
+          [preset.0]
+
+          name="Android"
+          platform="Android"
+          runnable=true
+          advanced_options=false
+          dedicated_server=false
+          custom_features=""
+          export_filter="all_resources"
+          include_filter=""
+          exclude_filter=""
+          export_path=""
+          encryption_include_filters=""
+          encryption_exclude_filters=""
+          encrypt_pck=false
+          encrypt_directory=false
+
+          [preset.0.options]
+
+          custom_template/debug=""
+          custom_template/release=""
+          gradle_build/use_gradle_build=false
+          gradle_build/export_format=0
+          gradle_build/min_sdk=""
+          gradle_build/target_sdk=""
+          architectures/armeabi-v7a=false
+          architectures/arm64-v8a=true
+          architectures/x86=false
+          architectures/x86_64=false
+          keystore/debug=""
+          keystore/debug_user=""
+          keystore/debug_password=""
+          keystore/release=""
+          keystore/release_user=""
+          keystore/release_password=""
+          version/code=1
+          version/name="1.0"
+          package/unique_name="com.mfstudio.subaruracing"
+          package/name="Subaru Racing"
+          package/signed=true
+          package/app_category=2
+          package/retain_data_on_uninstall=false
+          package/exclude_from_recents=false
+          package/show_in_android_tv=false
+          package/show_in_app_library=true
+          package/show_as_launcher_app=false
+          launcher_icons/main_192x192=""
+          launcher_icons/adaptive_foreground_432x432=""
+          launcher_icons/adaptive_background_432x432=""
+          graphics/opengl_debug=false
+          xr_features/xr_mode=0
+          screen/immersive_mode=true
+          screen/support_small=true
+          screen/support_normal=true
+          screen/support_large=true
+          screen/support_xlarge=true
+          user_data_backup/allow=false
+          command_line/extra_args=""
+          permissions/custom_permissions=PackedStringArray()
+          EOF
+          cat > game/main.tscn <<'EOF'
+          [gd_scene load_steps=2 format=3]
+
+          [ext_resource type="Script" path="res://main.gd" id="1"]
+
+          [node name="Main" type="Node3D"]
+          script = ExtResource("1")
+          EOF
+          cat > game/icon.svg <<'EOF'
+          <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" rx="24" fill="#0b2a9c"/><path d="M20 80 L40 52 H88 L108 80 Z" fill="#ffffff"/><circle cx="44" cy="84" r="10" fill="#111111"/><circle cx="84" cy="84" r="10" fill="#111111"/></svg>
+          EOF
+
+      - name: Crear scripts del juego
+        run: |
+          set -e
+          cat > game/car.gd <<'EOF'
+          extends VehicleBody3D
+
+          # ================= AJUSTES (puedes tocarlos) =================
+          const MODEL_SCALE = 0.245        # el modelo viene gigante: 1 unidad del modelo = 0.245 m
+          const CAR_MASS = 1450.0
+          const GEAR_RATIOS = [3.636, 2.375, 1.761, 1.346, 0.971, 0.756]
+          const FINAL_DRIVE = 3.9
+          const REVERSE_FORCE = 1500.0
+          const IDLE_RPM = 900.0
+          const REDLINE = 7000.0
+          const MAX_SPEED = 69.0           # m/s (~250 km/h)
+          const DRIVETRAIN = 0.62          # sube = mas aceleracion
+          const GRIP_FRONT = 1.45          # agarre llantas delanteras
+          const GRIP_REAR = 1.50           # agarre llantas traseras
+          const REST_LEN = 0.25
+          const MIX_RATE = 22050.0
+          const PAINTS = [Color(0.03, 0.12, 0.55), Color(0.65, 0.02, 0.03), Color(0.9, 0.9, 0.92), Color(0.02, 0.02, 0.025), Color(0.95, 0.7, 0.05), Color(0.05, 0.35, 0.1)]
+
+          # ---- entradas (las escribe el HUD) ----
+          var throttle_in = 0.0
+          var brake_in = 0.0
+          var steer_in = 0.0        # -1 izquierda, +1 derecha
+          var handbrake_in = false
+          var input_locked = false
+          var sound_on = true
+
+          # ---- estado (lo lee el HUD) ----
+          var gear = 1
+          var rpm = IDLE_RPM
+          var rpm_wheel = 0.0
+          var speed_ms = 0.0
+          var speed_kmh = 0.0
+          var fwd_speed = 0.0
+          var slip = 1.0
+          var contact_count = 0
+          var all_road = true
+          var surface_drag = 0.0
+
+          var wheels = []
+          var wheel_r = 0.35
+          var visual
+          var paint_mats = []
+          var tail_mats = []
+          var paint_idx = 0
+          var steer_angle = 0.0
+          var shift_timer = 0.0
+          var flip_timer = 0.0
+          var safe_timer = 0.0
+          var last_safe = Transform3D.IDENTITY
+          var surface_cache = {}
+          var last_bl = false
+          var audio_player
+          var playback
+          var phase = 0.0
+          var noise_lp = 0.0
+
+
+          func build(scene):
+              mass = CAR_MASS
+              center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
+              center_of_mass = Vector3(0.0, 0.3, 0.0)
+              continuous_cd = true
+              can_sleep = false
+              angular_damp = 0.3
+              linear_damp = 0.0
+
+              var s1 = CollisionShape3D.new()
+              var b1 = BoxShape3D.new()
+              b1.size = Vector3(1.78, 0.55, 4.3)
+              s1.shape = b1
+              s1.position = Vector3(0.0, 0.62, 0.0)
+              add_child(s1)
+              var s2 = CollisionShape3D.new()
+              var b2 = BoxShape3D.new()
+              b2.size = Vector3(1.5, 0.5, 2.1)
+              s2.shape = b2
+              s2.position = Vector3(0.0, 1.12, 0.35)
+              add_child(s2)
+
+              visual = Node3D.new()
+              visual.name = "Visual"
+              visual.basis = Basis(Vector3.UP, PI).scaled(Vector3.ONE * MODEL_SCALE)
+              add_child(visual)
+              var model = scene.instantiate()
+              visual.add_child(model)
+              _style_materials(model)
+
+              var defs = [
+                  ["FrontL", Vector3(3.145, 1.43, 5.28), true],
+                  ["FrontR", Vector3(-3.145, 1.43, 5.28), true],
+                  ["BackL", Vector3(3.145, 1.43, -5.4), false],
+                  ["BackR", Vector3(-3.145, 1.43, -5.4), false]
+              ]
+              for d in defs:
+                  _make_wheel(model, d[0], d[1], d[2])
+              _setup_audio()
+
+
+          func set_spawn(xf):
+              last_safe = xf
+
+
+          func _meshes(n, out):
+              if n is MeshInstance3D:
+                  out.append(n)
+              for c in n.get_children():
+                  _meshes(c, out)
+              return out
+
+
+          func _rel_xf(node, root):
+              var xf = Transform3D.IDENTITY
+              var n = node
+              while n != null and n != root:
+                  if n is Node3D:
+                      xf = n.transform * xf
+                  n = n.get_parent()
+              return xf
+
+
+          func _make_wheel(model, nm, fallback, front):
+              var w = model.find_child(nm, true, false)
+              var center = fallback
+              var rad = 1.43
+              var rel = Transform3D.IDENTITY
+              if w != null:
+                  rel = _rel_xf(w, model)
+                  var box = null
+                  for mi in _meshes(w, []):
+                      var bb = _rel_xf(mi, model) * mi.get_aabb()
+                      if box == null:
+                          box = bb
+                      else:
+                          box = box.merge(bb)
+                  if box != null:
+                      center = box.get_center()
+                      rad = box.size.y * 0.5
+              var vb = visual.basis
+              var vw = VehicleWheel3D.new()
+              vw.name = "Wheel" + nm
+              vw.position = vb * center + Vector3(0.0, REST_LEN, 0.0)
+              vw.use_as_steering = front
+              vw.use_as_traction = false
+              vw.wheel_radius = rad * MODEL_SCALE
+              vw.wheel_rest_length = REST_LEN
+              vw.suspension_travel = 0.2
+              vw.suspension_stiffness = 60.0
+              vw.suspension_max_force = 22000.0
+              vw.damping_compression = 4.5
+              vw.damping_relaxation = 5.5
+              vw.wheel_friction_slip = GRIP_FRONT if front else GRIP_REAR
+              vw.wheel_roll_influence = 0.12
+              vw.set_meta("front", front)
+              vw.set_meta("mu", 1.0)
+              wheel_r = rad * MODEL_SCALE
+              add_child(vw)
+              if w != null:
+                  w.get_parent().remove_child(w)
+                  vw.add_child(w)
+                  w.transform = Transform3D(vb, -(vb * center)) * rel
+              wheels.append(vw)
+
+
+          func _style_materials(model):
+              for mi in _meshes(model, []):
+                  if mi.mesh == null:
+                      continue
+                  for i in range(mi.mesh.get_surface_count()):
+                      var m = mi.mesh.surface_get_material(i)
+                      if m == null or not (m is BaseMaterial3D):
+                          continue
+                      var key = (String(m.resource_name) + " " + String(mi.name)).to_lower()
+                      var mat = m.duplicate()
+                      if key.contains("blackglass"):
+                          mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+                          mat.albedo_color = Color(0.02, 0.025, 0.03, 0.62)
+                          mat.roughness = 0.05
+                          mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+                      elif key.contains("glass"):
+                          mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+                          mat.albedo_color = Color(0.12, 0.16, 0.18, 0.3)
+                          mat.roughness = 0.05
+                          mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+                      elif key.contains("carpaint"):
+                          mat.albedo_color = PAINTS[0]
+                          mat.metallic = 0.55
+                          mat.roughness = 0.22
+                          mat.clearcoat_enabled = true
+                          mat.clearcoat = 0.9
+                          mat.clearcoat_roughness = 0.04
+                          paint_mats.append(mat)
+                      elif key.contains("taillight"):
+                          mat.emission_enabled = true
+                          mat.emission = Color(1.0, 0.03, 0.02)
+                          mat.emission_energy_multiplier = 0.4
+                          tail_mats.append(mat)
+                      elif key.contains("inside"):
+                          mat.metallic = 0.9
+                          mat.roughness = 0.2
+                      elif key.contains("headlight"):
+                          mat.emission_enabled = true
+                          mat.emission = Color(1.0, 0.95, 0.85)
+                          mat.emission_energy_multiplier = 0.6
+                      elif key.contains("tire") or key.contains("rubber"):
+                          mat.roughness = 0.92
+                          mat.metallic = 0.0
+                      elif key.contains("gold"):
+                          mat.metallic = 0.9
+                          mat.roughness = 0.28
+                      elif key.contains("mirror"):
+                          mat.metallic = 1.0
+                          mat.roughness = 0.04
+                      mi.set_surface_override_material(i, mat)
+
+
+          func next_paint():
+              paint_idx = (paint_idx + 1) % PAINTS.size()
+              for m in paint_mats:
+                  m.albedo_color = PAINTS[paint_idx]
+
+
+          func set_sound(on):
+              sound_on = on
+              if audio_player != null:
+                  audio_player.stream_paused = not on
+
+
+          # ---------------------------------------------------------------
+          func _physics_process(delta):
+              if wheels.is_empty():
+                  return
+              var fwd = -global_transform.basis.z
+              speed_ms = linear_velocity.length()
+              speed_kmh = speed_ms * 3.6
+              fwd_speed = linear_velocity.dot(fwd)
+
+              var tin = throttle_in
+              var bin = brake_in
+              var hb = handbrake_in
+              if input_locked:
+                  tin = 0.0
+                  bin = 0.0
+                  hb = true
+
+              _update_wheels(hb)
+              _steer(delta)
+              _powertrain(delta, tin, bin, fwd)
+              _aero()
+              _housekeeping(delta, bin)
+
+
+          func _surface_kind(body):
+              if body == null:
+                  return "asphalt"
+              var id = body.get_instance_id()
+              if surface_cache.has(id):
+                  return surface_cache[id]
+              var nm = String(body.name).to_lower()
+              var p = body.get_parent()
+              if p != null:
+                  nm += "/" + String(p.name).to_lower()
+              var kind = "asphalt"
+              if nm.contains("grava"):
+                  kind = "gravel"
+              elif nm.contains("terreno"):
+                  kind = "grass"
+              elif nm.contains("piano"):
+                  kind = "curb"
+              surface_cache[id] = kind
+              return kind
+
+
+          func _update_wheels(hb):
+              contact_count = 0
+              all_road = true
+              surface_drag = 0.0
+              var worst = 1.0
+              for w in wheels:
+                  var front = w.get_meta("front")
+                  var base = GRIP_REAR
+                  if front:
+                      base = GRIP_FRONT
+                  var mu = 1.0
+                  if w.is_in_contact():
+                      contact_count += 1
+                      var kind = _surface_kind(w.get_contact_body())
+                      if kind == "grass":
+                          mu = 0.55
+                          surface_drag = maxf(surface_drag, 0.16)
+                          all_road = false
+                      elif kind == "gravel":
+                          mu = 0.62
+                          surface_drag = maxf(surface_drag, 0.12)
+                          all_road = false
+                      elif kind == "curb":
+                          mu = 0.95
+                      worst = minf(worst, w.get_skidinfo())
+                  if hb and not front:
+                      mu *= 0.38
+                  w.wheel_friction_slip = base * mu
+                  w.set_meta("mu", mu)
+              slip = worst
+
+
+          func _steer(delta):
+              var max_ang = lerpf(0.62, 0.11, clampf(speed_ms / 50.0, 0.0, 1.0))
+              var target = -steer_in * max_ang
+              var rate = 6.0
+              if absf(target) > absf(steer_angle):
+                  rate = 3.5
+              steer_angle = move_toward(steer_angle, target, delta * rate)
+              steering = steer_angle
+
+
+          func _torque(r):
+              var pts = [[900.0, 150.0], [2000.0, 260.0], [3000.0, 340.0], [4000.0, 400.0], [5000.0, 420.0], [6000.0, 390.0], [6800.0, 330.0], [7200.0, 250.0]]
+              if r <= pts[0][0]:
+                  return pts[0][1]
+              for i in range(1, pts.size()):
+                  if r <= pts[i][0]:
+                      var a = pts[i - 1]
+                      var b = pts[i]
+                      return lerpf(a[1], b[1], (r - a[0]) / (b[0] - a[0]))
+              return 0.0
+
+
+          func _drive_force(t, ratio):
+              if speed_ms > MAX_SPEED:
+                  return 0.0
+              var r = maxf(rpm_wheel, lerpf(IDLE_RPM, 3600.0, t))
+              if r > REDLINE:
+                  return 0.0
+              return _torque(r) * ratio * 0.9 / wheel_r * t * DRIVETRAIN
+
+
+          func _powertrain(delta, tin, bin, fwd):
+              var ratio = GEAR_RATIOS[gear - 1] * FINAL_DRIVE
+              rpm_wheel = absf(fwd_speed) / wheel_r * ratio * 9.5493
+
+              shift_timer -= delta
+              if shift_timer <= 0.0:
+                  if gear < 6 and rpm_wheel > 6500.0 and tin > 0.3:
+                      gear += 1
+                      shift_timer = 0.35
+                  elif gear > 1 and rpm_wheel < 2300.0:
+                      gear -= 1
+                      shift_timer = 0.2
+
+              var eng_total = 0.0
+              var brk = 0.0
+              if tin > 0.01:
+                  if fwd_speed < -1.5:
+                      brk = tin
+                  else:
+                      eng_total = _drive_force(tin, ratio)
+              if bin > 0.01:
+                  if fwd_speed > 1.5 or tin > 0.01:
+                      brk = maxf(brk, bin)
+                  elif fwd_speed > -9.0:
+                      eng_total = -REVERSE_FORCE * bin * 4.0
+              if tin <= 0.01 and bin <= 0.01:
+                  if speed_ms > 1.0:
+                      brk = 0.07
+                  else:
+                      brk = 0.5
+              if shift_timer > 0.2 and eng_total > 0.0:
+                  eng_total = 0.0
+
+              engine_force = 0.0
+              brake = brk * mass * 9.8 / (4.0 * float(Engine.physics_ticks_per_second))
+
+              if absf(eng_total) > 0.1 and contact_count > 0:
+                  var per = eng_total / float(contact_count)
+                  for w in wheels:
+                      if w.is_in_contact():
+                          var cap = float(w.get_meta("mu")) * mass * 9.8 * 0.3
+                          var f = clampf(per, -cap, cap)
+                          var gp = w.global_position - global_transform.basis.y * wheel_r
+                          apply_force(fwd * f, gp - global_position)
+
+
+          func _aero():
+              if speed_ms > 0.5:
+                  apply_central_force(-linear_velocity * speed_ms * 0.45)
+                  apply_central_force(-global_transform.basis.y * speed_ms * speed_ms * 0.5)
+              if surface_drag > 0.0:
+                  apply_central_force(-linear_velocity * mass * surface_drag)
+
+
+          func _housekeeping(delta, bin):
+              var bl = bin > 0.05
+              if bl != last_bl:
+                  last_bl = bl
+                  for m in tail_mats:
+                      m.emission_energy_multiplier = 5.0 if bl else 0.4
+
+              safe_timer -= delta
+              if safe_timer <= 0.0:
+                  safe_timer = 0.6
+                  if contact_count >= 3 and all_road and global_transform.basis.y.dot(Vector3.UP) > 0.85 and speed_ms > 1.0:
+                      last_safe = global_transform
+
+              if global_transform.basis.y.dot(Vector3.UP) < 0.2 and speed_ms < 4.0:
+                  flip_timer += delta
+                  if flip_timer > 2.0:
+                      respawn()
+              else:
+                  flip_timer = 0.0
+              if global_position.y < -95.0:
+                  respawn()
+
+
+          func respawn():
+              var xf = last_safe
+              xf.origin += Vector3(0.0, 0.5, 0.0)
+              flip_timer = 0.0
+              gear = 1
+              linear_velocity = Vector3.ZERO
+              angular_velocity = Vector3.ZERO
+              global_transform = xf
+
+
+          # ---------------------------------------------------------------
+          func _process(delta):
+              var target = maxf(rpm_wheel, IDLE_RPM + throttle_in * 3000.0 * clampf(1.0 - rpm_wheel / 3600.0, 0.0, 1.0))
+              if shift_timer > 0.2:
+                  target *= 0.8
+              target = clampf(target, IDLE_RPM, REDLINE + 300.0)
+              rpm = lerpf(rpm, target, clampf(delta * 12.0, 0.0, 1.0))
+              _fill_audio()
+
+
+          func _setup_audio():
+              var gen = AudioStreamGenerator.new()
+              gen.mix_rate = MIX_RATE
+              gen.buffer_length = 0.12
+              audio_player = AudioStreamPlayer.new()
+              audio_player.stream = gen
+              audio_player.volume_db = -4.0
+              add_child(audio_player)
+              audio_player.play()
+              playback = audio_player.get_stream_playback()
+
+
+          func _fill_audio():
+              if playback == null or not sound_on:
+                  return
+              var n = playback.get_frames_available()
+              if n <= 0:
+                  return
+              n = mini(n, 2000)
+              var inc = (rpm / 60.0 * 2.0) / MIX_RATE
+              var eload = 0.35 + 0.65 * throttle_in
+              var amp = 0.2 + 0.16 * eload
+              var skid_amp = 0.0
+              if contact_count > 0 and slip < 0.9:
+                  skid_amp = clampf((0.9 - slip) * 1.6, 0.0, 0.5) * clampf(speed_ms / 8.0, 0.0, 1.0)
+              var buf = PackedVector2Array()
+              buf.resize(n)
+              for i in range(n):
+                  phase += inc
+                  if phase > 1.0:
+                      phase -= 1.0
+                  var p = phase * TAU
+                  var s = sin(p) + 0.55 * sin(2.0 * p + 0.6) + 0.35 * sin(3.0 * p + 1.3) + 0.22 * sin(4.0 * p) + 0.12 * sin(6.0 * p)
+                  s = tanh(s * (0.9 + eload)) * amp
+                  noise_lp = lerpf(noise_lp, randf() * 2.0 - 1.0, 0.25)
+                  s += noise_lp * (0.05 + 0.1 * eload + skid_amp)
+                  buf[i] = Vector2(s, s)
+              playback.push_buffer(buf)
+          EOF
+          cat > game/hud.gd <<'EOF'
+          extends Control
+
+          var car
+          var main
+          var font
+          var sb_idle
+          var sb_press
+          var btns = {}
+          var touches = {}
+          var steer_in = 0.0
+          var thr_in = 0.0
+          var brk_in = 0.0
+          var u = 1.0
+          var sound_on = true
+
+          var lap = 0
+          var lap_time = 0.0
+          var last_lap = -1.0
+          var best_lap = -1.0
+          var msg = ""
+          var toast = ""
+
+          const HOLD = ["left", "right", "gas", "brake", "hand"]
+          const CAM_NAMES = ["CHASE", "FAR", "HOOD"]
+
+
+          func _ready():
+              set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+              mouse_filter = Control.MOUSE_FILTER_IGNORE
+              font = ThemeDB.fallback_font
+              resized.connect(_layout)
+              _layout()
+
+
+          func _mk_style(col):
+              var sb = StyleBoxFlat.new()
+              sb.bg_color = col
+              sb.set_corner_radius_all(int(18.0 * u))
+              sb.border_color = Color(1, 1, 1, 0.35)
+              sb.set_border_width_all(2)
+              return sb
+
+
+          func _layout():
+              var W = size.x
+              var H = size.y
+              u = H / 720.0
+              sb_idle = _mk_style(Color(1, 1, 1, 0.14))
+              sb_press = _mk_style(Color(1, 1, 1, 0.42))
+              btns["left"] = Rect2(30.0 * u, H - 190.0 * u, 170.0 * u, 150.0 * u)
+              btns["right"] = Rect2(220.0 * u, H - 190.0 * u, 170.0 * u, 150.0 * u)
+              btns["gas"] = Rect2(W - 210.0 * u, H - 260.0 * u, 180.0 * u, 220.0 * u)
+              btns["brake"] = Rect2(W - 410.0 * u, H - 200.0 * u, 180.0 * u, 160.0 * u)
+              btns["hand"] = Rect2(W - 410.0 * u, H - 310.0 * u, 180.0 * u, 90.0 * u)
+              var names = ["cam", "color", "reset", "snd"]
+              var bw = 110.0 * u
+              for i in range(names.size()):
+                  btns[names[i]] = Rect2(W - (i + 1) * (bw + 12.0 * u), 16.0 * u, bw, 58.0 * u)
+
+
+          func _hit(pos):
+              for k in btns:
+                  if btns[k].has_point(pos):
+                      return k
+              return ""
+
+
+          func _input(event):
+              if event is InputEventScreenTouch:
+                  if event.pressed:
+                      var id = _hit(event.position)
+                      if id != "":
+                          touches[event.index] = id
+                          _tap(id)
+                  else:
+                      touches.erase(event.index)
+              elif event is InputEventScreenDrag:
+                  if touches.has(event.index):
+                      var id2 = _hit(event.position)
+                      if id2 != "" and HOLD.has(id2) and HOLD.has(touches[event.index]):
+                          touches[event.index] = id2
+
+
+          func _tap(id):
+              if car == null:
+                  return
+              if id == "cam":
+                  main.cycle_camera()
+              elif id == "color":
+                  car.next_paint()
+              elif id == "reset":
+                  main.respawn()
+              elif id == "snd":
+                  sound_on = not sound_on
+                  car.set_sound(sound_on)
+
+
+          func _held(id):
+              return touches.values().has(id)
+
+
+          func _process(delta):
+              if car == null:
+                  return
+              var left = _held("left") or Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A)
+              var right = _held("right") or Input.is_key_pressed(KEY_RIGHT) or Input.is_key_pressed(KEY_D)
+              var gas = _held("gas") or Input.is_key_pressed(KEY_UP) or Input.is_key_pressed(KEY_W)
+              var brake = _held("brake") or Input.is_key_pressed(KEY_DOWN) or Input.is_key_pressed(KEY_S)
+              var hand = _held("hand") or Input.is_key_pressed(KEY_SPACE)
+              var st = 0.0
+              if right:
+                  st += 1.0
+              if left:
+                  st -= 1.0
+              var rate = 5.5
+              if st != 0.0:
+                  rate = 3.2
+              steer_in = move_toward(steer_in, st, delta * rate)
+              thr_in = move_toward(thr_in, 1.0 if gas else 0.0, delta * 5.0)
+              brk_in = move_toward(brk_in, 1.0 if brake else 0.0, delta * 7.0)
+              car.steer_in = steer_in
+              car.throttle_in = thr_in
+              car.brake_in = brk_in
+              car.handbrake_in = hand
+              queue_redraw()
+
+
+          func _text(t, center, fs, col):
+              var s = int(fs)
+              var w = font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, s)
+              var p = Vector2(center.x - w.x * 0.5, center.y + fs * 0.35)
+              draw_string(font, p + Vector2(2, 2), t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, Color(0, 0, 0, 0.6))
+              draw_string(font, p, t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, col)
+
+
+          func _text_left(t, pos, fs, col):
+              var s = int(fs)
+              draw_string(font, pos + Vector2(2, 2), t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, Color(0, 0, 0, 0.6))
+              draw_string(font, pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, col)
+
+
+          func _arrow(r, dir):
+              var c = r.get_center()
+              var s = r.size.y * 0.28
+              var pts = PackedVector2Array()
+              if dir < 0:
+                  pts = PackedVector2Array([c + Vector2(-s, 0), c + Vector2(s * 0.7, -s), c + Vector2(s * 0.7, s)])
+              else:
+                  pts = PackedVector2Array([c + Vector2(s, 0), c + Vector2(-s * 0.7, -s), c + Vector2(-s * 0.7, s)])
+              draw_colored_polygon(pts, Color(1, 1, 1, 0.85))
+
+
+          func _fmt(t):
+              if t < 0.0:
+                  return "--:--.--"
+              var m = int(t) / 60
+              var s = t - float(m) * 60.0
+              return "%d:%05.2f" % [m, s]
+
+
+          func _draw():
+              if car == null:
+                  return
+              var W = size.x
+              var H = size.y
+              var white = Color(1, 1, 1, 0.92)
+
+              for k in btns:
+                  var r = btns[k]
+                  var held = HOLD.has(k) and _held(k)
+                  draw_style_box(sb_press if held else sb_idle, r)
+                  if k == "left":
+                      _arrow(r, -1)
+                  elif k == "right":
+                      _arrow(r, 1)
+                  elif k == "gas":
+                      _text("GAS", r.get_center(), 46.0 * u, white)
+                  elif k == "brake":
+                      _text("BRAKE", r.get_center(), 34.0 * u, white)
+                  elif k == "hand":
+                      _text("HAND", r.get_center(), 28.0 * u, white)
+                  elif k == "cam":
+                      _text(CAM_NAMES[main.cam_mode], r.get_center(), 20.0 * u, white)
+                  elif k == "color":
+                      _text("COLOR", r.get_center(), 20.0 * u, white)
+                  elif k == "reset":
+                      _text("RESET", r.get_center(), 20.0 * u, white)
+                  elif k == "snd":
+                      _text("SND ON" if sound_on else "SND OFF", r.get_center(), 18.0 * u, white)
+
+              # velocimetro
+              var cx = W * 0.5
+              var gtxt = str(car.gear)
+              if car.fwd_speed < -0.8:
+                  gtxt = "R"
+              elif car.speed_ms < 0.5 and car.throttle_in < 0.05:
+                  gtxt = "N"
+              _text(str(int(car.speed_kmh)), Vector2(cx, H - 120.0 * u), 92.0 * u, Color(1, 1, 1, 1))
+              _text("km/h", Vector2(cx, H - 56.0 * u), 24.0 * u, Color(1, 1, 1, 0.8))
+              _text(gtxt, Vector2(cx - 150.0 * u, H - 120.0 * u), 64.0 * u, Color(1.0, 0.8, 0.2, 1))
+
+              # barra de RPM
+              var bw = 340.0 * u
+              var bh = 14.0 * u
+              var bx = cx - bw * 0.5
+              var by = H - 28.0 * u
+              draw_rect(Rect2(bx, by, bw, bh), Color(0, 0, 0, 0.5))
+              var f = clampf(car.rpm / 7500.0, 0.0, 1.0)
+              var col = Color(1, 1, 1, 0.9).lerp(Color(1, 0.15, 0.1, 1), clampf((car.rpm - 5800.0) / 1200.0, 0.0, 1.0))
+              draw_rect(Rect2(bx, by, bw * f, bh), col)
+
+              # vueltas
+              _text_left("LAP " + str(lap), Vector2(24.0 * u, 44.0 * u), 34.0 * u, Color(1, 1, 1, 1))
+              _text_left(_fmt(lap_time), Vector2(24.0 * u, 84.0 * u), 30.0 * u, white)
+              _text_left("BEST " + _fmt(best_lap), Vector2(24.0 * u, 120.0 * u), 22.0 * u, Color(0.5, 1.0, 0.6, 1))
+              _text_left("LAST " + _fmt(last_lap), Vector2(24.0 * u, 148.0 * u), 22.0 * u, white)
+
+              if msg != "":
+                  _text(msg, Vector2(cx, H * 0.30), 130.0 * u, Color(1, 1, 1, 1))
+              if toast != "":
+                  _text(toast, Vector2(cx, H * 0.18), 40.0 * u, Color(1.0, 0.9, 0.3, 1))
+          EOF
+          cat > game/main.gd <<'EOF'
+          extends Node3D
+
+          const CarScript = preload("res://car.gd")
+          const HudScript = preload("res://hud.gd")
+          const TRACK_PATH = "res://models/circuito_forza.glb"
+          const CAR_PATH = "res://models/2006_subaru_impreza_wrx_sti.glb"
+
+          var track
+          var car
+          var camera
+          var hud
+          var spawn_xf = Transform3D.IDENTITY
+          var fwd0 = Vector3.RIGHT
+          var line_center = Vector3.ZERO
+          var line_half = 14.0
+
+          var cam_mode = 0
+          var cam_dir = Vector3.RIGHT
+          var cam_y = 0.0
+
+          var countdown = 3.5
+          var started = false
+          var armed = false
+          var lap = 0
+          var lap_time = 0.0
+          var last_lap = -1.0
+          var best_lap = -1.0
+          var prev_pos = Vector3.ZERO
+          var have_prev = false
+          var toast_t = 0.0
+
+
+          func _ready():
+              Engine.max_fps = 60
+              DisplayServer.screen_set_keep_on(true)
+              _build_environment()
+
+              var track_scene = load(TRACK_PATH)
+              var car_scene = load(CAR_PATH)
+              if track_scene == null or car_scene == null:
+                  _fatal("No se pudieron cargar los modelos .glb")
+                  return
+
+              track = track_scene.instantiate()
+              add_child(track)
+              _ensure_collision(track)
+              _find_spawn()
+
+              car = CarScript.new()
+              car.build(car_scene)
+              add_child(car)
+              car.global_transform = spawn_xf
+              car.set_spawn(spawn_xf)
+              car.input_locked = true
+
+              camera = Camera3D.new()
+              camera.near = 0.08
+              camera.far = 2500.0
+              camera.fov = 68.0
+              add_child(camera)
+              camera.current = true
+              cam_dir = fwd0
+              cam_y = spawn_xf.origin.y + 2.0
+
+              var layer = CanvasLayer.new()
+              add_child(layer)
+              hud = HudScript.new()
+              layer.add_child(hud)
+              hud.car = car
+              hud.main = self
+
+
+          func _fatal(text):
+              var layer = CanvasLayer.new()
+              add_child(layer)
+              var l = Label.new()
+              l.text = text
+              l.add_theme_font_size_override("font_size", 36)
+              l.position = Vector2(40, 40)
+              layer.add_child(l)
+
+
+          func _build_environment():
+              var sky_mat = ProceduralSkyMaterial.new()
+              sky_mat.sky_top_color = Color(0.2, 0.42, 0.85)
+              sky_mat.sky_horizon_color = Color(0.7, 0.8, 0.92)
+              sky_mat.ground_horizon_color = Color(0.65, 0.72, 0.78)
+              sky_mat.ground_bottom_color = Color(0.3, 0.35, 0.35)
+              var sky = Sky.new()
+              sky.sky_material = sky_mat
+              var env = Environment.new()
+              env.background_mode = Environment.BG_SKY
+              env.sky = sky
+              env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+              env.ambient_light_energy = 0.9
+              env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+              env.fog_enabled = true
+              env.fog_light_color = Color(0.72, 0.8, 0.9)
+              env.fog_density = 0.0008
+              env.adjustment_enabled = true
+              env.adjustment_saturation = 1.1
+              env.adjustment_contrast = 1.05
+              var we = WorldEnvironment.new()
+              we.environment = env
+              add_child(we)
+
+              var sun = DirectionalLight3D.new()
+              sun.rotation_degrees = Vector3(-48.0, -35.0, 0.0)
+              sun.light_energy = 1.25
+              sun.shadow_enabled = true
+              sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+              sun.directional_shadow_max_distance = 140.0
+              add_child(sun)
+
+
+          func _all_meshes(n, out):
+              if n is MeshInstance3D:
+                  out.append(n)
+              for c in n.get_children():
+                  _all_meshes(c, out)
+              return out
+
+
+          func _ensure_collision(root):
+              var keys = ["pista", "pianos", "grava", "terreno", "muros"]
+              for mi in _all_meshes(root, []):
+                  var nm = String(mi.name).to_lower()
+                  var hit = false
+                  for k in keys:
+                      if nm.contains(k):
+                          hit = true
+                  if not hit:
+                      continue
+                  var has_body = mi.get_parent() is StaticBody3D
+                  for c in mi.get_children():
+                      if c is StaticBody3D:
+                          has_body = true
+                  if not has_body:
+                      mi.create_trimesh_collision()
+
+
+          func _find_mesh(root, key):
+              for mi in _all_meshes(root, []):
+                  if String(mi.name).to_lower().contains(key):
+                      return mi
+              return null
+
+
+          func _find_spawn():
+              var sp = track.find_child("*Spawn*", true, false)
+              if sp != null and sp is Node3D:
+                  spawn_xf = sp.global_transform.orthonormalized()
+                  spawn_xf.origin += Vector3(0.0, 0.25, 0.0)
+              else:
+                  spawn_xf = Transform3D(Basis(), Vector3(0.0, 8.0, 0.0))
+              fwd0 = -spawn_xf.basis.z
+              fwd0.y = 0.0
+              fwd0 = fwd0.normalized()
+              var lm = _find_mesh(track, "linea_meta")
+              if lm != null:
+                  var bb = lm.global_transform * lm.get_aabb()
+                  line_center = bb.get_center()
+                  line_half = maxf(bb.size.x, bb.size.z) * 0.5 + 4.0
+              else:
+                  line_center = spawn_xf.origin + fwd0 * 12.0
+                  line_half = 12.0
+
+
+          func cycle_camera():
+              cam_mode = (cam_mode + 1) % 3
+
+
+          func respawn():
+              if car != null:
+                  car.respawn()
+                  var f = -car.global_transform.basis.z
+                  f.y = 0.0
+                  if f.length() > 0.05:
+                      cam_dir = f.normalized()
+
+
+          func _physics_process(delta):
+              if car == null or hud == null:
+                  return
+
+              if countdown > -1.0:
+                  countdown -= delta
+                  if countdown > 2.5:
+                      hud.msg = "3"
+                  elif countdown > 1.5:
+                      hud.msg = "2"
+                  elif countdown > 0.5:
+                      hud.msg = "1"
+                  elif countdown > -0.8:
+                      hud.msg = "GO!"
+                  else:
+                      hud.msg = ""
+                  car.input_locked = countdown > 0.5
+
+              var cp = car.global_position
+              if not have_prev:
+                  prev_pos = cp
+                  have_prev = true
+              var d_prev = (prev_pos - line_center).dot(fwd0)
+              var d_cur = (cp - line_center).dot(fwd0)
+              var side = absf((cp - line_center).dot(fwd0.cross(Vector3.UP)))
+              var dist = Vector2(cp.x - line_center.x, cp.z - line_center.z).length()
+
+              if started:
+                  lap_time += delta
+                  if dist > 140.0:
+                      armed = true
+
+              if d_prev < 0.0 and d_cur >= 0.0 and side < line_half and car.fwd_speed > 0.0:
+                  if not started:
+                      started = true
+                      lap = 1
+                      lap_time = 0.0
+                  elif armed:
+                      last_lap = lap_time
+                      if best_lap < 0.0 or last_lap < best_lap:
+                          best_lap = last_lap
+                      hud.toast = "VUELTA " + str(lap) + "  " + hud._fmt(last_lap)
+                      toast_t = 3.5
+                      lap += 1
+                      lap_time = 0.0
+                      armed = false
+              prev_pos = cp
+
+              if toast_t > 0.0:
+                  toast_t -= delta
+                  if toast_t <= 0.0:
+                      hud.toast = ""
+
+              hud.lap = lap
+              hud.lap_time = lap_time
+              hud.last_lap = last_lap
+              hud.best_lap = best_lap
+
+
+          func _process(delta):
+              if car == null or camera == null:
+                  return
+              var cb = car.global_transform
+              var fwd = -cb.basis.z
+              fwd.y = 0.0
+              if fwd.length() < 0.05:
+                  fwd = cam_dir
+              fwd = fwd.normalized()
+              var vel = car.linear_velocity
+              vel.y = 0.0
+              var tdir = fwd
+              if vel.length() > 8.0 and car.fwd_speed > 0.0:
+                  tdir = (fwd * 0.55 + vel.normalized() * 0.45).normalized()
+              cam_dir = cam_dir + (tdir - cam_dir) * clampf(delta * 5.0, 0.0, 1.0)
+              if cam_dir.length() < 0.01:
+                  cam_dir = fwd
+              cam_dir = cam_dir.normalized()
+
+              var base_fov = 68.0
+              if cam_mode == 2:
+                  camera.global_transform = cb * Transform3D(Basis(), Vector3(0.0, 1.12, -0.2))
+                  base_fov = 78.0
+              else:
+                  var dist = 6.0
+                  var h = 1.9
+                  if cam_mode == 1:
+                      dist = 9.0
+                      h = 3.2
+                  var p = cb.origin - cam_dir * dist
+                  cam_y = lerpf(cam_y, cb.origin.y + h, clampf(delta * 6.0, 0.0, 1.0))
+                  p.y = cam_y
+                  camera.global_position = p
+                  camera.look_at(cb.origin + Vector3(0.0, 0.9, 0.0) + cam_dir * 2.0, Vector3.UP)
+              var tf = base_fov + clampf(car.speed_kmh / 250.0, 0.0, 1.0) * 20.0
+              camera.fov = lerpf(camera.fov, tf, clampf(delta * 3.0, 0.0, 1.0))
+          EOF
+
+      - name: Instalar Godot 4.3 y plantillas de exportacion
+        run: |
+          set -e
+          GV=4.3-stable
+          curl -fsSL -o godot.zip "https://github.com/godotengine/godot/releases/download/$GV/Godot_v${GV}_linux.x86_64.zip"
+          curl -fsSL -o templates.tpz "https://github.com/godotengine/godot/releases/download/$GV/Godot_v${GV}_export_templates.tpz"
+          unzip -q godot.zip
+          sudo mv "Godot_v${GV}_linux.x86_64" /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
+          unzip -q templates.tpz -d tpl
+          mv tpl/templates/* "$HOME/.local/share/godot/export_templates/4.3.stable/"
+          godot --version
+
+      - name: Configurar Android SDK y firma debug
+        run: |
+          set -e
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          if [ ! -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
+            mkdir -p "$SDK/cmdline-tools"
+            curl -fsSL -o cmd.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q cmd.zip -d cmdtmp
+            mv cmdtmp/cmdline-tools "$SDK/cmdline-tools/latest"
+          fi
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-34" > /dev/null
+          mkdir -p "$HOME/.android" "$HOME/.config/godot"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkey -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          cat > "$HOME/.config/godot/editor_settings-4.3.tres" <<EOT
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$SDK"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOT
+
+      - name: Importar recursos (modelos y texturas)
+        run: |
+          cd game
+          godot --headless --import || true
+          godot --headless --import || true
+          ls -la models
+
+      - name: Revisar scripts (falla si hay errores de sintaxis)
+        run: |
+          fail=0
+          for s in car hud main; do
+            echo "== $s.gd =="
+            out=$(godot --headless --path game --check-only --script "res://$s.gd" 2>&1) || true
+            echo "$out"
+            if echo "$out" | grep -qE "Parse Error|Compile Error|Failed to load script"; then
+              fail=1
+            fi
+          done
+          if [ "$fail" = "1" ]; then
+            echo "::error::Hay errores en los scripts, revisa el log de arriba"
+            exit 1
+          fi
+
+      - name: Exportar APK
+        run: |
+          mkdir -p build
+          godot --headless --path game --export-debug "Android" "$GITHUB_WORKSPACE/build/SubaruRacing.apk"
+          ls -la build
+          test -f build/SubaruRacing.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SubaruRacing-APK
+          path: build/SubaruRacing.apk
