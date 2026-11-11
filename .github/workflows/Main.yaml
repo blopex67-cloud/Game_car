@@ -859,7 +859,7 @@ jobs:
           java-version: "17"
       - name: Instalar Android SDK (licencias aceptadas automáticamente)
         run: |
-          ANDROID_HOME="$GITHUB_WORKSPACE/android-sdk"
+          ANDROID_HOME="$HOME/android-sdk"
           mkdir -p "$ANDROID_HOME/cmdline-tools"
           curl -fL -o cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           unzip -q cmdtools.zip -d "$ANDROID_HOME/cmdline-tools"
@@ -868,16 +868,32 @@ jobs:
           yes | $SDKMANAGER --licenses > /dev/null 2>&1 || true
           $SDKMANAGER "platform-tools" "build-tools;34.0.0" "platforms;android-34"
           echo "GODOT_ANDROID_SDK_PATH=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "GODOT_JAVA_SDK_PATH=$JAVA_HOME" >> "$GITHUB_ENV"
 
       - name: Crear keystore de depuración
         run: |
-          keytool -genkeypair -v -keystore debug.keystore -storepass android -keypass android \
+          keytool -genkeypair -v -keystore $HOME/debug.keystore -storepass android -keypass android \
             -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
 
+      - name: Configurar Godot para exportar Android
+        run: |
+          mkdir -p "$HOME/.config/godot"
+          cat > "$HOME/.config/godot/editor_settings-4.3.tres" << EOF_SETTINGS
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$HOME/android-sdk"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF_SETTINGS
+          cat "$HOME/.config/godot/editor_settings-4.3.tres"
+
       - name: Importar recursos y exportar APK
         env:
-          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /home/runner/debug.keystore
           GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
           GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
         run: |
