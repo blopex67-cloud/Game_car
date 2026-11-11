@@ -1,2290 +1,818 @@
-name: Subaru Racing APK
+name: Amyr - Pasillo Oscuro (generar y compilar APK)
+
+# UN SOLO ARCHIVO: este YAML contiene el juego completo (game.yaml, scripts y herramientas).
+# Pasos:
+#   1. Sube assets/models/Amyr.fbx al repositorio (es binario, no puede ir en YAML).
+#   2. Sube este archivo a .github/workflows/build-apk.yml
+#   3. Actions -> Amyr - Pasillo Oscuro -> Run workflow. Descarga el APK del artefacto.
 
 on:
-  workflow_dispatch:
   push:
-    paths:
-      - '.github/workflows/subaru_racing.yml'
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build-apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Buscar los modelos .glb en el repositorio
+      - name: Verificar modelo FBX
         run: |
-          set -e
-          mkdir -p game/models
-          for f in 2006_subaru_impreza_wrx_sti.glb circuito_forza.glb; do
-            p=$(find . -path ./game -prune -o -type f -iname "$f" -print | head -n 1)
-            if [ -z "$p" ]; then
-              echo "::error::Falta $f en el repositorio. Subelo a cualquier carpeta del repo."
-              exit 1
-            fi
-            echo "Encontrado: $p"
-            cp "$p" "game/models/$f"
-          done
-          ls -la game/models
-
-      - name: Crear proyecto Godot (configuracion)
-        run: |
-          set -e
-          mkdir -p game
-          cat > game/project.godot <<'EOF'
-          ; Engine configuration file.
-          config_version=5
-
-          [application]
-
-          config/name="Subaru Racing"
-          run/main_scene="res://main.tscn"
-          config/features=PackedStringArray("4.3", "GL Compatibility")
-          config/icon="res://icon.svg"
-
-          [display]
-
-          window/size/viewport_width=1280
-          window/size/viewport_height=720
-          window/stretch/mode="canvas_items"
-          window/stretch/aspect="expand"
-          window/handheld/orientation=4
-
-          [input_devices]
-
-          pointing/emulate_mouse_from_touch=false
-
-          [physics]
-
-          common/physics_ticks_per_second=90
-          common/max_physics_steps_per_frame=6
-
-          [rendering]
-
-          renderer/rendering_method="gl_compatibility"
-          renderer/rendering_method.mobile="gl_compatibility"
-          textures/vram_compression/import_etc2_astc=true
-          textures/default_filters/anisotropic_filtering_level=2
-          anti_aliasing/quality/msaa_3d=1
-          lights_and_shadows/directional_shadow/size=1024
-          environment/defaults/default_clear_color=Color(0.5, 0.65, 0.85, 1)
-          EOF
-          cat > game/export_presets.cfg <<'EOF'
-          [preset.0]
-
-          name="Android"
-          platform="Android"
-          runnable=true
-          advanced_options=false
-          dedicated_server=false
-          custom_features=""
-          export_filter="all_resources"
-          include_filter=""
-          exclude_filter=""
-          export_path=""
-          encryption_include_filters=""
-          encryption_exclude_filters=""
-          encrypt_pck=false
-          encrypt_directory=false
-
-          [preset.0.options]
-
-          custom_template/debug=""
-          custom_template/release=""
-          gradle_build/use_gradle_build=false
-          gradle_build/export_format=0
-          gradle_build/min_sdk=""
-          gradle_build/target_sdk=""
-          architectures/armeabi-v7a=false
-          architectures/arm64-v8a=true
-          architectures/x86=false
-          architectures/x86_64=false
-          keystore/debug=""
-          keystore/debug_user=""
-          keystore/debug_password=""
-          keystore/release=""
-          keystore/release_user=""
-          keystore/release_password=""
-          version/code=2
-          version/name="2.0"
-          package/unique_name="com.mfstudio.subaruracing"
-          package/name="Subaru Racing"
-          package/signed=true
-          package/app_category=2
-          package/retain_data_on_uninstall=false
-          package/exclude_from_recents=false
-          package/show_in_android_tv=false
-          package/show_in_app_library=true
-          package/show_as_launcher_app=false
-          launcher_icons/main_192x192=""
-          launcher_icons/adaptive_foreground_432x432=""
-          launcher_icons/adaptive_background_432x432=""
-          graphics/opengl_debug=false
-          xr_features/xr_mode=0
-          screen/immersive_mode=true
-          screen/support_small=true
-          screen/support_normal=true
-          screen/support_large=true
-          screen/support_xlarge=true
-          user_data_backup/allow=false
-          command_line/extra_args=""
-          permissions/custom_permissions=PackedStringArray()
-          EOF
-          cat > game/main.tscn <<'EOF'
-          [gd_scene load_steps=2 format=3]
-
-          [ext_resource type="Script" path="res://main.gd" id="1"]
-
-          [node name="Main" type="Node3D"]
-          script = ExtResource("1")
-          EOF
-          cat > game/icon.svg <<'EOF'
-          <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" rx="24" fill="#0b2a9c"/><path d="M20 80 L40 52 H88 L108 80 Z" fill="#ffffff"/><circle cx="44" cy="84" r="10" fill="#111111"/><circle cx="84" cy="84" r="10" fill="#111111"/></svg>
-          EOF
-
-      - name: Crear scripts del juego
-        run: |
-          set -e
-          cat > game/car_audio.gd <<'EOF'
-          # Sintetizador del coche (solo el jugador): bóxer 4 cilindros con turbo, frenos, chirridos y choques.
-          extends RefCounted
-
-          const RATE = 22050.0
-          const CLANG_F = [1870.0, 2540.0, 3710.0]
-
-
-          class Svf:
-              var lp = 0.0
-              var bp = 0.0
-
-              # Filtro pasabanda de estado variable. f = 2*sin(PI*fc/RATE). Normalizado a ganancia ~1 en el centro.
-              func run(x: float, f: float, q: float) -> float:
-                  lp += f * bp
-                  var hp = x - lp - q * bp
-                  bp += f * hp
-                  return bp * q
-
-
-          var cyc = 0.0
-          var last_slot = -1
-          var pulse = 0.0
-          var prev_thr = 0.0
-          var prev_brk = 0.0
-          var prev_gear = 1
-          var blow_env = 0.0
-          var pop_env = 0.0
-          var clunk_env = 0.0
-          var blip_env = 0.0
-          var thud_env = 0.0
-          var clang_env = 0.0
-          var crash_env = 0.0
-          var stick_ph = 0.0
-          var scr_ph = 0.0
-          var scr_mod = 0.0
-          var clunk_ph = 0.0
-          var blip_ph = 0.0
-          var thud_ph = 0.0
-          var clang_ph = [0.0, 0.0, 0.0]
-          var exh_mid = Svf.new()
-          var exh_low = Svf.new()
-          var turbo = Svf.new()
-          var blow = Svf.new()
-          var crackle = Svf.new()
-          var squeal = Svf.new()
-          var scr_band = Svf.new()
-          var crash_band = Svf.new()
-
-
-          func trigger_crash(dv: float):
-              var s = clampf(dv / 15.0, 0.0, 1.0)
-              thud_env = maxf(thud_env, 0.4 + 0.6 * s)
-              clang_env = maxf(clang_env, s * 0.9)
-              crash_env = maxf(crash_env, s)
-
-
-          static func _wrap(x: float) -> float:
-              return x - floorf(x)
-
-
-          func fill(n: int, rpm: float, thr: float, brk: float, slip: float, spd: float, grounded: bool, gear: int) -> PackedVector2Array:
-              var buf = PackedVector2Array()
-              buf.resize(n)
-              # eventos de un solo disparo (no por muestra)
-              if prev_thr > 0.5 and thr < 0.1 and rpm > 3800.0:
-                  blow_env = 1.0
-              if brk > 0.5 and prev_brk <= 0.5:
-                  clunk_env = 1.0
-              if gear != prev_gear:
-                  blip_env = 1.0
-                  prev_gear = gear
-              prev_thr = thr
-              prev_brk = brk
-
-              var cyc_inc = (rpm / 120.0) / RATE
-              var load = 0.3 + 0.7 * thr
-              var boost = clampf((rpm - 2800.0) / 3000.0, 0.0, 1.0) * thr
-              var overrun = thr < 0.05 and rpm > 3000.0
-              var f_mid = 2.0 * sin(PI * clampf(140.0 + rpm * 0.04, 120.0, 800.0) / RATE)
-              var f_low = 2.0 * sin(PI * 85.0 / RATE)
-              var f_turbo = 2.0 * sin(PI * clampf(2000.0 + rpm * 0.3, 2000.0, 3600.0) / RATE)
-              var f_blow = 2.0 * sin(PI * 3100.0 / RATE)
-              var f_crk = 2.0 * sin(PI * 1500.0 / RATE)
-              var f_sq = 2.0 * sin(PI * 2600.0 / RATE)
-              var f_scr = 2.0 * sin(PI * 2400.0 / RATE)
-              var f_crash = 2.0 * sin(PI * 700.0 / RATE)
-              var sq_amt = clampf(brk, 0.0, 1.0) * clampf((spd - 3.0) / 8.0, 0.0, 1.0) * 0.18
-              var scr_amt = clampf((0.8 - slip) / 0.4, 0.0, 1.0) * clampf((spd - 4.0) / 8.0, 0.0, 1.0) * (1.0 if grounded else 0.0) * 0.4
-
-              for i in range(n):
-                  # Motor bóxer: 4 explosiones por ciclo de 720 grados, con eco de escape
-                  cyc += cyc_inc
-                  if cyc >= 1.0:
-                      cyc -= 1.0
-                  var slot = int(cyc * 4.0)
-                  if slot != last_slot:
-                      last_slot = slot
-                      pulse = load * (0.8 + 0.2 * randf())
-                  pulse *= 0.993
-                  var nz = randf() * 2.0 - 1.0
-                  var eng = exh_low.run(pulse, f_low, 0.9) * 1.4 + exh_mid.run(pulse, f_mid, 0.55) * 0.6
-                  # turbo: silbido que sube con las revoluciones y la presión
-                  eng += turbo.run(nz, f_turbo, 0.35) * boost * 0.05
-                  # válvula de descarga al soltar el gas a altas vueltas (psshh)
-                  if blow_env > 0.001:
-                      blow_env *= 0.99984
-                      eng += blow.run(nz, f_blow, 0.4) * blow_env * 0.5
-                  # petardeos de escape al retener
-                  if overrun and randf() < 0.0035:
-                      pop_env = 0.6 + 0.4 * randf()
-                  if pop_env > 0.001:
-                      pop_env *= 0.985
-                      eng += crackle.run(nz, f_crk, 0.5) * pop_env * 0.8
-                  eng = tanh(eng * 2.0 * (0.3 + 0.7 * load)) * 0.5
-                  var out = eng
-
-                  # frenos: chirrido con modulación de "stick-slip"
-                  if sq_amt > 0.0001:
-                      stick_ph = _wrap(stick_ph + 37.0 / RATE)
-                      out += squeal.run(nz, f_sq, 0.2) * sq_amt * (0.55 + 0.45 * sin(TAU * stick_ph))
-                  # neumáticos derrapando: tono con vibrato + ruido
-                  if scr_amt > 0.0001:
-                      scr_mod = _wrap(scr_mod + 5.0 / RATE)
-                      scr_ph = _wrap(scr_ph + 1250.0 * (1.0 + 0.03 * sin(TAU * scr_mod)) / RATE)
-                      var tone = sin(TAU * scr_ph) * 0.5 + sin(TAU * scr_ph * 2.0) * 0.25
-                      out += (tone * 0.35 + scr_band.run(nz, f_scr, 0.25) * 0.5) * scr_amt
-                  # "clac" de pastillas al empezar a frenar
-                  if clunk_env > 0.001:
-                      clunk_env *= 0.9992
-                      clunk_ph = _wrap(clunk_ph + 95.0 / RATE)
-                      out += sin(TAU * clunk_ph) * clunk_env * 0.25
-                  # cambio de marcha
-                  if blip_env > 0.001:
-                      blip_env *= 0.9985
-                      blip_ph = _wrap(blip_ph + 240.0 / RATE)
-                      out += (sin(TAU * blip_ph) * 0.6 + nz * 0.25) * blip_env * 0.15
-
-                  # choques: golpe grave, metal que resuena y crujido
-                  if thud_env > 0.001:
-                      thud_env *= 0.99974
-                      thud_ph = _wrap(thud_ph + 52.0 / RATE)
-                      out += sin(TAU * thud_ph) * thud_env * 0.5
-                  if clang_env > 0.001:
-                      clang_env *= 0.99985
-                      var c = 0.0
-                      for k in range(3):
-                          clang_ph[k] = _wrap(clang_ph[k] + CLANG_F[k] / RATE)
-                          c += sin(TAU * clang_ph[k]) / (k + 1.0)
-                      out += c * clang_env * 0.2
-                  if crash_env > 0.001:
-                      crash_env *= 0.9994
-                      out += crash_band.run(nz, f_crash, 0.5) * crash_env * 0.5
-
-                  var s = clampf(out, -1.0, 1.0)
-                  buf[i] = Vector2(s, s)
-              return buf
-          EOF
-          cat > game/car_damage.gd <<'EOF'
-          # Abolladuras: deforma los vértices de la carrocería en la GPU con un shader de vértices.
-          extends RefCounted
-
-          const SHADER_CODE = """
-          shader_type spatial;
-
-          uniform vec4 albedo_color : source_color = vec4(1.0);
-          uniform sampler2D albedo_tex : source_color, filter_linear_mipmap, repeat_enable;
-          uniform bool use_albedo_tex = false;
-          uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap, repeat_enable;
-          uniform bool use_normal_tex = false;
-          uniform float metallic_v : hint_range(0.0, 1.0) = 0.0;
-          uniform float roughness_v : hint_range(0.0, 1.0) = 0.5;
-          uniform float clearcoat_v : hint_range(0.0, 1.0) = 0.0;
-          uniform vec3 emit_color : source_color = vec3(0.0);
-          uniform float emit_energy = 0.0;
-          uniform vec4 dent_pos[3];
-          uniform vec4 dent_dir[3];
-          uniform float dent_radius = 1.0;
-
-          void vertex() {
-          	for (int i = 0; i < 3; i++) {
-          		float d = distance(VERTEX, dent_pos[i].xyz);
-          		if (dent_dir[i].w > 0.0 && d < dent_radius) {
-          			float f = 1.0 - d / dent_radius;
-          			f = f * f * (3.0 - 2.0 * f);
-          			VERTEX += dent_dir[i].xyz * dent_dir[i].w * f;
-          		}
-          	}
-          }
-
-          void fragment() {
-          	vec4 c = albedo_color;
-          	if (use_albedo_tex) {
-          		c *= texture(albedo_tex, UV);
-          	}
-          	ALBEDO = c.rgb;
-          	METALLIC = metallic_v;
-          	ROUGHNESS = roughness_v;
-          	CLEARCOAT = clearcoat_v;
-          	if (use_normal_tex) {
-          		NORMAL_MAP = texture(normal_tex, UV).rgb;
-          	}
-          	EMISSION = emit_color * emit_energy;
-          }
-          """
-
-          var targets = []
-          var dents = []
-
-
-          func _init():
-              for i in range(3):
-                  dents.append([Vector3.ZERO, Vector3.ZERO, 0.0])
-
-
-          static func make_shader() -> Shader:
-              var sh = Shader.new()
-              sh.code = SHADER_CODE
-              return sh
-
-
-          # Copia un material estándar a un ShaderMaterial con los mismos colores y texturas
-          static func to_shader(m, sh: Shader) -> ShaderMaterial:
-              var sm = ShaderMaterial.new()
-              sm.shader = sh
-              sm.set_shader_parameter("albedo_color", m.albedo_color)
-              if m.albedo_texture != null:
-                  sm.set_shader_parameter("albedo_tex", m.albedo_texture)
-                  sm.set_shader_parameter("use_albedo_tex", true)
-              if m.normal_enabled and m.normal_texture != null:
-                  sm.set_shader_parameter("normal_tex", m.normal_texture)
-                  sm.set_shader_parameter("use_normal_tex", true)
-              sm.set_shader_parameter("metallic_v", m.metallic)
-              sm.set_shader_parameter("roughness_v", m.roughness)
-              sm.set_shader_parameter("clearcoat_v", 0.9 if (m is StandardMaterial3D and m.clearcoat_enabled) else 0.0)
-              if m.emission_enabled:
-                  var ec = m.emission
-                  sm.set_shader_parameter("emit_color", Vector3(ec.r, ec.g, ec.b))
-                  sm.set_shader_parameter("emit_energy", m.emission_energy_multiplier)
-              return sm
-
-
-          static func set_color(m, col: Color):
-              if m is ShaderMaterial:
-                  m.set_shader_parameter("albedo_color", col)
-              else:
-                  m.albedo_color = col
-
-
-          static func set_emit(m, e: float):
-              if m is ShaderMaterial:
-                  m.set_shader_parameter("emit_energy", e)
-              else:
-                  m.emission_energy_multiplier = e
-
-
-          func add_dent(pos: Vector3, inward: Vector3, s: float):
-              # sustituye la abolladura más débil (hay 3 ranuras)
-              var best = 0
-              for i in range(dents.size()):
-                  if dents[i][2] < dents[best][2]:
-                      best = i
-              dents[best] = [pos, inward.normalized(), 0.05 + 0.25 * s]
-              apply()
-
-
-          func reset():
-              for i in range(dents.size()):
-                  dents[i] = [Vector3.ZERO, Vector3.ZERO, 0.0]
-              apply()
-
-
-          # Pasa las abolladuras al espacio local de cada malla (cada una tiene su propia transformación)
-          func apply():
-              for t in targets:
-                  var mi = t[0]
-                  if not is_instance_valid(mi):
-                      continue
-                  var gt = mi.global_transform
-                  var inv = gt.affine_inverse()
-                  var sc = maxf(gt.basis.get_scale().x, 0.0001)
-                  var pa = []
-                  var da = []
-                  for d in dents:
-                      var lp = inv * d[0]
-                      var ld = (gt.basis.inverse() * d[1]).normalized()
-                      pa.append(Vector4(lp.x, lp.y, lp.z, 0.0))
-                      da.append(Vector4(ld.x, ld.y, ld.z, d[2] / sc))
-                  for sm in t[1]:
-                      if sm == null:
-                          continue
-                      sm.set_shader_parameter("dent_pos", pa)
-                      sm.set_shader_parameter("dent_dir", da)
-                      sm.set_shader_parameter("dent_radius", 1.3 / sc)
-          EOF
-          cat > game/car_fx.gd <<'EOF'
-          # Efectos de partículas: chispas, humo de choque, humo de neumáticos y de motor.
-          extends RefCounted
-
-
-          static func _mat(col: Color, unshaded: bool) -> StandardMaterial3D:
-              var m = StandardMaterial3D.new()
-              m.albedo_color = col
-              m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED if unshaded else BaseMaterial3D.SHADING_MODE_PER_PIXEL
-              m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-              return m
-
-
-          static func _cleanup(parent: Node, p: Node, t: float):
-              parent.get_tree().create_timer(t).timeout.connect(p.queue_free)
-
-
-          static func smoke_emitter(col: Color, size_s: float, life: float, amount: int) -> CPUParticles3D:
-              var p = CPUParticles3D.new()
-              p.amount = amount
-              p.lifetime = life
-              p.local_coords = false
-              p.direction = Vector3.UP
-              p.spread = 30.0
-              p.initial_velocity_min = 0.6
-              p.initial_velocity_max = 1.6
-              p.gravity = Vector3(0.0, 0.8, 0.0)
-              p.damping_min = 0.8
-              p.damping_max = 1.5
-              p.scale_amount_min = size_s
-              p.scale_amount_max = size_s * 2.2
-              p.color = col
-              var mesh = SphereMesh.new()
-              mesh.radius = 0.25
-              mesh.height = 0.5
-              mesh.radial_segments = 6
-              mesh.rings = 3
-              mesh.material = _mat(col, true)
-              p.mesh = mesh
-              return p
-
-
-          static func sparks(parent: Node, pos: Vector3, out_dir: Vector3, s: float):
-              var p = CPUParticles3D.new()
-              p.one_shot = true
-              p.explosiveness = 1.0
-              p.amount = int(14 + 26.0 * s)
-              p.lifetime = 0.55
-              p.local_coords = false
-              p.direction = out_dir.normalized()
-              p.spread = 55.0
-              p.initial_velocity_min = 4.0 + 6.0 * s
-              p.initial_velocity_max = 8.0 + 10.0 * s
-              p.gravity = Vector3(0.0, -9.8, 0.0)
-              p.scale_amount_min = 0.5
-              p.scale_amount_max = 1.2
-              var mesh = SphereMesh.new()
-              mesh.radius = 0.02
-              mesh.height = 0.04
-              mesh.radial_segments = 4
-              mesh.rings = 2
-              mesh.material = _mat(Color(1.0, 0.65, 0.2), true)
-              p.mesh = mesh
-              parent.add_child(p)
-              p.global_position = pos
-              p.emitting = true
-              _cleanup(parent, p, 1.2)
-
-
-          static func puff(parent: Node, pos: Vector3, s: float):
-              var p = smoke_emitter(Color(0.75, 0.75, 0.78, 0.6), 0.5, 1.2, int(8 + 20.0 * s))
-              p.one_shot = true
-              p.explosiveness = 0.8
-              parent.add_child(p)
-              p.global_position = pos
-              p.emitting = true
-              _cleanup(parent, p, 1.8)
-          EOF
-          cat > game/car.gd <<'EOF'
-          extends VehicleBody3D
-
-          const CarAudio = preload("res://car_audio.gd")
-          const CarDamage = preload("res://car_damage.gd")
-          const CarFX = preload("res://car_fx.gd")
-
-          signal crashed(dv, pos)
-
-          # ================= AJUSTES (puedes tocarlos) =================
-          const MODEL_SCALE = 0.245        # el modelo viene gigante: 1 unidad del modelo = 0.245 m
-          const CAR_MASS = 1450.0
-          const GEAR_RATIOS = [3.636, 2.375, 1.761, 1.346, 0.971, 0.756]
-          const FINAL_DRIVE = 3.9
-          const REVERSE_FORCE = 1500.0
-          const IDLE_RPM = 900.0
-          const REDLINE = 7000.0
-          const MAX_SPEED = 69.0           # m/s (~250 km/h)
-          const DRIVETRAIN = 0.62          # sube = mas aceleracion
-          const GRIP_FRONT = 1.45          # agarre llantas delanteras
-          const GRIP_REAR = 1.50           # agarre llantas traseras
-          const REST_LEN = 0.25
-          const MIX_RATE = 22050.0
-          const PAINTS = [Color(0.03, 0.12, 0.55), Color(0.65, 0.02, 0.03), Color(0.9, 0.9, 0.92), Color(0.02, 0.02, 0.025), Color(0.95, 0.7, 0.05), Color(0.05, 0.35, 0.1)]
-
-          # ---- entradas (las escriben el HUD o la IA) ----
-          var throttle_in = 0.0
-          var brake_in = 0.0
-          var steer_in = 0.0        # -1 izquierda, +1 derecha
-          var handbrake_in = false
-          var input_locked = false
-          var sound_on = true
-          var power_mult = 1.0      # lo usan los modos sorpresa
-          var synth
-          var damage
-          var damage_total = 0.0
-          var impacts = []
-          var impact_cd = 0.0
-          var tire_smoke = []
-          var engine_smoke
-
-          # ---- estado (lo lee el HUD) ----
-          var gear = 1
-          var rpm = IDLE_RPM
-          var rpm_wheel = 0.0
-          var speed_ms = 0.0
-          var speed_kmh = 0.0
-          var fwd_speed = 0.0
-          var slip = 1.0
-          var contact_count = 0
-          var all_road = true
-          var surface_drag = 0.0
-
-          var wheels = []
-          var wheel_r = 0.35
-          var visual
-          var paint_mats = []
-          var tail_mats = []
-          var paint_idx = 0
-          var steer_angle = 0.0
-          var shift_timer = 0.0
-          var flip_timer = 0.0
-          var safe_timer = 0.0
-          var last_safe = Transform3D.IDENTITY
-          var surface_cache = {}
-          var last_bl = false
-          var audio_player
-          var playback
-          var phase = 0.0
-          var noise_lp = 0.0
-
-
-          func build(scene, with_audio = true):
-              mass = CAR_MASS
-              center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
-              center_of_mass = Vector3(0.0, 0.3, 0.0)
-              continuous_cd = true
-              can_sleep = false
-              contact_monitor = true
-              max_contacts_reported = 8
-              damage = CarDamage.new()
-              angular_damp = 0.3
-              linear_damp = 0.0
-
-              var s1 = CollisionShape3D.new()
-              var b1 = BoxShape3D.new()
-              b1.size = Vector3(1.78, 0.55, 4.3)
-              s1.shape = b1
-              s1.position = Vector3(0.0, 0.62, 0.0)
-              add_child(s1)
-              var s2 = CollisionShape3D.new()
-              var b2 = BoxShape3D.new()
-              b2.size = Vector3(1.5, 0.5, 2.1)
-              s2.shape = b2
-              s2.position = Vector3(0.0, 1.12, 0.35)
-              add_child(s2)
-
-              visual = Node3D.new()
-              visual.name = "Visual"
-              visual.basis = Basis(Vector3.UP, PI).scaled(Vector3.ONE * MODEL_SCALE)
-              add_child(visual)
-              var model = scene.instantiate()
-              visual.add_child(model)
-              _style_materials(model)
-              make_deformable(model)
-
-              var defs = [
-                  ["FrontL", Vector3(3.145, 1.43, 5.28), true],
-                  ["FrontR", Vector3(-3.145, 1.43, 5.28), true],
-                  ["BackL", Vector3(3.145, 1.43, -5.4), false],
-                  ["BackR", Vector3(-3.145, 1.43, -5.4), false]
-              ]
-              for d in defs:
-                  _make_wheel(model, d[0], d[1], d[2])
-              tire_smoke = []
-              for w in wheels:
-                  if not w.get_meta("front"):
-                      var e = CarFX.smoke_emitter(Color(0.82, 0.82, 0.84, 0.55), 0.8, 1.1, 60)
-                      add_child(e)
-                      tire_smoke.append(e)
-              engine_smoke = CarFX.smoke_emitter(Color(0.12, 0.12, 0.12, 0.7), 0.6, 1.6, 40)
-              add_child(engine_smoke)
-              if with_audio:
-                  _setup_audio()
-
-
-          # Configura el coche: color y, si es IA, optimizaciones (sin sombra y con distancia de corte)
-          func configure(paint, ai):
-              set_paint(paint)
-              if ai:
-                  for mi in _meshes(visual, []):
-                      mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-                      mi.visibility_range_end = 260.0
-
-
-          func set_spawn(xf):
-              last_safe = xf
-
-
-          func _meshes(n, out):
-              if n is MeshInstance3D:
-                  out.append(n)
-              for c in n.get_children():
-                  _meshes(c, out)
-              return out
-
-
-          func _rel_xf(node, root):
-              var xf = Transform3D.IDENTITY
-              var n = node
-              while n != null and n != root:
-                  if n is Node3D:
-                      xf = n.transform * xf
-                  n = n.get_parent()
-              return xf
-
-
-          func _make_wheel(model, nm, fallback, front):
-              var w = model.find_child(nm, true, false)
-              var center = fallback
-              var rad = 1.43
-              var rel = Transform3D.IDENTITY
-              if w != null:
-                  rel = _rel_xf(w, model)
-                  var box = null
-                  for mi in _meshes(w, []):
-                      var bb = _rel_xf(mi, model) * mi.get_aabb()
-                      if box == null:
-                          box = bb
-                      else:
-                          box = box.merge(bb)
-                  if box != null:
-                      center = box.get_center()
-                      rad = box.size.y * 0.5
-              var vb = visual.basis
-              var vw = VehicleWheel3D.new()
-              vw.name = "Wheel" + nm
-              vw.position = vb * center + Vector3(0.0, REST_LEN, 0.0)
-              vw.use_as_steering = front
-              vw.use_as_traction = false
-              vw.wheel_radius = rad * MODEL_SCALE
-              vw.wheel_rest_length = REST_LEN
-              vw.suspension_travel = 0.2
-              vw.suspension_stiffness = 60.0
-              vw.suspension_max_force = 22000.0
-              vw.damping_compression = 4.5
-              vw.damping_relaxation = 5.5
-              vw.wheel_friction_slip = GRIP_FRONT if front else GRIP_REAR
-              vw.wheel_roll_influence = 0.12
-              vw.set_meta("front", front)
-              vw.set_meta("mu", 1.0)
-              wheel_r = rad * MODEL_SCALE
-              add_child(vw)
-              if w != null:
-                  w.get_parent().remove_child(w)
-                  vw.add_child(w)
-                  w.transform = Transform3D(vb, -(vb * center)) * rel
-              wheels.append(vw)
-
-
-          func _style_materials(model):
-              for mi in _meshes(model, []):
-                  if mi.mesh == null:
-                      continue
-                  for i in range(mi.mesh.get_surface_count()):
-                      var m = mi.mesh.surface_get_material(i)
-                      if m == null or not (m is BaseMaterial3D):
-                          continue
-                      var key = (String(m.resource_name) + " " + String(mi.name)).to_lower()
-                      var mat = m.duplicate()
-                      if key.contains("blackglass"):
-                          mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-                          mat.albedo_color = Color(0.02, 0.025, 0.03, 0.62)
-                          mat.roughness = 0.05
-                          mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-                      elif key.contains("glass"):
-                          mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-                          mat.albedo_color = Color(0.12, 0.16, 0.18, 0.3)
-                          mat.roughness = 0.05
-                          mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-                      elif key.contains("carpaint"):
-                          mat.albedo_color = PAINTS[0]
-                          mat.metallic = 0.55
-                          mat.roughness = 0.22
-                          mat.clearcoat_enabled = true
-                          mat.clearcoat = 0.9
-                          mat.clearcoat_roughness = 0.04
-                          paint_mats.append(mat)
-                      elif key.contains("taillight"):
-                          mat.emission_enabled = true
-                          mat.emission = Color(1.0, 0.03, 0.02)
-                          mat.emission_energy_multiplier = 0.4
-                          tail_mats.append(mat)
-                      elif key.contains("inside"):
-                          mat.metallic = 0.9
-                          mat.roughness = 0.2
-                      elif key.contains("headlight"):
-                          mat.emission_enabled = true
-                          mat.emission = Color(1.0, 0.95, 0.85)
-                          mat.emission_energy_multiplier = 0.6
-                      elif key.contains("tire") or key.contains("rubber"):
-                          mat.roughness = 0.92
-                          mat.metallic = 0.0
-                      elif key.contains("gold"):
-                          mat.metallic = 0.9
-                          mat.roughness = 0.28
-                      elif key.contains("mirror"):
-                          mat.metallic = 1.0
-                          mat.roughness = 0.04
-                      mi.set_surface_override_material(i, mat)
-
-
-          func set_paint(i):
-              paint_idx = i % PAINTS.size()
-              for m in paint_mats:
-                  CarDamage.set_color(m, PAINTS[paint_idx])
-
-
-          func next_paint():
-              set_paint(paint_idx + 1)
-
-
-          func set_sound(on):
-              sound_on = on
-              if audio_player != null:
-                  audio_player.stream_paused = not on
-
-
-          # ---------------------------------------------------------------
-          # ---------------- choques, daños y efectos ----------------
-          func _integrate_forces(state):
-              for i in range(state.get_contact_count()):
-                  var dv = state.get_contact_impulse(i).length() / maxf(mass, 1.0)
-                  if dv > 3.5:
-                      impacts.append([global_transform * state.get_contact_local_position(i), dv])
-
-
-          func _process_impacts():
-              if impacts.is_empty():
-                  return
-              var best = impacts[0]
-              for im in impacts:
-                  if im[1] > best[1]:
-                      best = im
-              impacts.clear()
-              _on_impact(best[0], best[1])
-
-
-          func _on_impact(pos: Vector3, dv: float):
-              if impact_cd > 0.0:
-                  return
-              impact_cd = 0.15
-              var s = clampf(dv / 18.0, 0.0, 1.0)
-              damage.add_dent(pos, global_position - pos, s)
-              damage_total = minf(1.0, damage_total + s * 0.2)
-              if synth != null:
-                  synth.trigger_crash(dv)
-              CarFX.sparks(get_parent(), pos, (pos - global_position).normalized(), s)
-              CarFX.puff(get_parent(), pos, s)
-              crashed.emit(dv, pos)
-
-
-          func repair():
-              damage_total = 0.0
-              if damage != null:
-                  damage.reset()
-
-
-          # Sustituye los materiales de carrocería por shaders deformables (las ruedas y cristales no)
-          func make_deformable(model):
-              damage.shader = CarDamage.make_shader()
-              for mi in _meshes(model, []):
-                  if mi.mesh == null:
-                      continue
-                  var mats = []
-                  for i in range(mi.mesh.get_surface_count()):
-                      var m = mi.get_surface_override_material(i)
-                      var key = ""
-                      if m != null:
-                          key = (String(m.resource_name) + " " + String(mi.name)).to_lower()
-                      if m == null or not (m is StandardMaterial3D) or key.contains("glass") or key.contains("tire") or key.contains("rubber"):
-                          mats.append(null)
-                          continue
-                      var sm = CarDamage.to_shader(m, damage.shader)
-                      var pidx = paint_mats.find(m)
-                      if pidx >= 0:
-                          paint_mats[pidx] = sm
-                      var tidx = tail_mats.find(m)
-                      if tidx >= 0:
-                          tail_mats[tidx] = sm
-                      mi.set_surface_override_material(i, sm)
-                      mats.append(sm)
-                  damage.targets.append([mi, mats])
-
-
-          # Humo de neumáticos al derrapar y humo de motor si el coche está muy dañado
-          func _update_fx():
-              var k = 0
-              for w in wheels:
-                  if w.get_meta("front"):
-                      continue
-                  if k >= tire_smoke.size():
-                      break
-                  var e = tire_smoke[k]
-                  k += 1
-                  var sliding = w.is_in_contact() and w.get_skidinfo() < 0.7 and speed_ms > 6.0
-                  e.emitting = sliding or (handbrake_in and speed_ms > 6.0 and w.is_in_contact())
-                  e.global_position = w.global_position - global_transform.basis.y * wheel_r
-              if engine_smoke != null:
-                  engine_smoke.emitting = damage_total > 0.45
-                  engine_smoke.global_position = global_position + global_transform.basis * Vector3(0.0, 1.0, 1.6)
-
-
-          func _physics_process(delta):
-              impact_cd = maxf(impact_cd - delta, 0.0)
-              _process_impacts()
-              _update_fx()
-              if wheels.is_empty():
-                  return
-              var fwd = -global_transform.basis.z
-              speed_ms = linear_velocity.length()
-              speed_kmh = speed_ms * 3.6
-              fwd_speed = linear_velocity.dot(fwd)
-
-              var tin = throttle_in
-              var bin = brake_in
-              var hb = handbrake_in
-              if input_locked:
-                  tin = 0.0
-                  bin = 0.0
-                  hb = true
-
-              _update_wheels(hb)
-              _steer(delta)
-              _powertrain(delta, tin, bin, fwd)
-              _aero()
-              _housekeeping(delta, bin)
-
-
-          func _surface_kind(body):
-              if body == null:
-                  return "asphalt"
-              var id = body.get_instance_id()
-              if surface_cache.has(id):
-                  return surface_cache[id]
-              var nm = String(body.name).to_lower()
-              var p = body.get_parent()
-              if p != null:
-                  nm += "/" + String(p.name).to_lower()
-              var kind = "asphalt"
-              if nm.contains("grava"):
-                  kind = "gravel"
-              elif nm.contains("terreno"):
-                  kind = "grass"
-              elif nm.contains("piano"):
-                  kind = "curb"
-              surface_cache[id] = kind
-              return kind
-
-
-          func _update_wheels(hb):
-              contact_count = 0
-              all_road = true
-              surface_drag = 0.0
-              var worst = 1.0
-              for w in wheels:
-                  var front = w.get_meta("front")
-                  var base = GRIP_REAR
-                  if front:
-                      base = GRIP_FRONT
-                  var mu = 1.0
-                  if w.is_in_contact():
-                      contact_count += 1
-                      var kind = _surface_kind(w.get_contact_body())
-                      if kind == "grass":
-                          mu = 0.55
-                          surface_drag = maxf(surface_drag, 0.16)
-                          all_road = false
-                      elif kind == "gravel":
-                          mu = 0.62
-                          surface_drag = maxf(surface_drag, 0.12)
-                          all_road = false
-                      elif kind == "curb":
-                          mu = 0.95
-                      worst = minf(worst, w.get_skidinfo())
-                  if hb and not front:
-                      mu *= 0.38
-                  w.wheel_friction_slip = base * mu
-                  w.set_meta("mu", mu)
-              slip = worst
-
-
-          func _steer(delta):
-              var max_ang = lerpf(0.62, 0.11, clampf(speed_ms / 50.0, 0.0, 1.0))
-              var target = -steer_in * max_ang
-              var rate = 6.0
-              if absf(target) > absf(steer_angle):
-                  rate = 3.5
-              steer_angle = move_toward(steer_angle, target, delta * rate)
-              steering = steer_angle
-
-
-          func _torque(r):
-              var pts = [[900.0, 150.0], [2000.0, 260.0], [3000.0, 340.0], [4000.0, 400.0], [5000.0, 420.0], [6000.0, 390.0], [6800.0, 330.0], [7200.0, 250.0]]
-              if r <= pts[0][0]:
-                  return pts[0][1]
-              for i in range(1, pts.size()):
-                  if r <= pts[i][0]:
-                      var a = pts[i - 1]
-                      var b = pts[i]
-                      return lerpf(a[1], b[1], (r - a[0]) / (b[0] - a[0]))
-              return 0.0
-
-
-          func _drive_force(t, ratio):
-              if speed_ms > MAX_SPEED:
-                  return 0.0
-              var r = maxf(rpm_wheel, lerpf(IDLE_RPM, 3600.0, t))
-              if r > REDLINE:
-                  return 0.0
-              return _torque(r) * ratio * 0.9 / wheel_r * t * DRIVETRAIN * power_mult * (1.0 - 0.25 * damage_total)
-
-
-          func _powertrain(delta, tin, bin, fwd):
-              var ratio = GEAR_RATIOS[gear - 1] * FINAL_DRIVE
-              rpm_wheel = absf(fwd_speed) / wheel_r * ratio * 9.5493
-
-              shift_timer -= delta
-              if shift_timer <= 0.0:
-                  if gear < 6 and rpm_wheel > 6500.0 and tin > 0.3:
-                      gear += 1
-                      shift_timer = 0.35
-                  elif gear > 1 and rpm_wheel < 2300.0:
-                      gear -= 1
-                      shift_timer = 0.2
-
-              var eng_total = 0.0
-              var brk = 0.0
-              if tin > 0.01:
-                  if fwd_speed < -1.5:
-                      brk = tin
-                  else:
-                      eng_total = _drive_force(tin, ratio)
-              if bin > 0.01:
-                  if fwd_speed > 1.5 or tin > 0.01:
-                      brk = maxf(brk, bin)
-                  elif fwd_speed > -9.0:
-                      eng_total = -REVERSE_FORCE * bin * 4.0
-              if tin <= 0.01 and bin <= 0.01:
-                  if speed_ms > 1.0:
-                      brk = 0.07
-                  else:
-                      brk = 0.5
-              if shift_timer > 0.2 and eng_total > 0.0:
-                  eng_total = 0.0
-
-              engine_force = 0.0
-              brake = brk * mass * 9.8 / (4.0 * float(Engine.physics_ticks_per_second))
-
-              if absf(eng_total) > 0.1 and contact_count > 0:
-                  var per = eng_total / float(contact_count)
-                  for w in wheels:
-                      if w.is_in_contact():
-                          var cap = float(w.get_meta("mu")) * mass * 9.8 * 0.3
-                          var f = clampf(per, -cap, cap)
-                          var gp = w.global_position - global_transform.basis.y * wheel_r
-                          apply_force(fwd * f, gp - global_position)
-
-
-          func _aero():
-              if speed_ms > 0.5:
-                  apply_central_force(-linear_velocity * speed_ms * 0.45)
-                  apply_central_force(-global_transform.basis.y * speed_ms * speed_ms * 0.5)
-              if surface_drag > 0.0:
-                  apply_central_force(-linear_velocity * mass * surface_drag)
-
-
-          func _housekeeping(delta, bin):
-              var bl = bin > 0.05
-              if bl != last_bl:
-                  last_bl = bl
-                  for m in tail_mats:
-                      CarDamage.set_emit(m, 5.0 if bl else 0.4)
-
-              safe_timer -= delta
-              if safe_timer <= 0.0:
-                  safe_timer = 0.6
-                  if contact_count >= 3 and all_road and global_transform.basis.y.dot(Vector3.UP) > 0.85 and speed_ms > 1.0:
-                      last_safe = global_transform
-
-              if global_transform.basis.y.dot(Vector3.UP) < 0.2 and speed_ms < 4.0:
-                  flip_timer += delta
-                  if flip_timer > 2.0:
-                      respawn()
-              else:
-                  flip_timer = 0.0
-              if global_position.y < -95.0:
-                  respawn()
-
-
-          func respawn():
-              var xf = last_safe
-              xf.origin += Vector3(0.0, 0.5, 0.0)
-              flip_timer = 0.0
-              gear = 1
-              linear_velocity = Vector3.ZERO
-              angular_velocity = Vector3.ZERO
-              global_transform = xf
-
-
-          # ---------------------------------------------------------------
-          func _process(delta):
-              var target = maxf(rpm_wheel, IDLE_RPM + throttle_in * 3000.0 * clampf(1.0 - rpm_wheel / 3600.0, 0.0, 1.0))
-              if shift_timer > 0.2:
-                  target *= 0.8
-              target = clampf(target, IDLE_RPM, REDLINE + 300.0)
-              rpm = lerpf(rpm, target, clampf(delta * 12.0, 0.0, 1.0))
-              _fill_audio()
-
-
-          func _setup_audio():
-              synth = CarAudio.new()
-              var gen = AudioStreamGenerator.new()
-              gen.mix_rate = MIX_RATE
-              gen.buffer_length = 0.12
-              audio_player = AudioStreamPlayer.new()
-              audio_player.stream = gen
-              audio_player.volume_db = -4.0
-              add_child(audio_player)
-              audio_player.play()
-              playback = audio_player.get_stream_playback()
-
-
-          func _fill_audio():
-              if playback == null or not sound_on or synth == null:
-                  return
-              var n = playback.get_frames_available()
-              if n <= 0:
-                  return
-              n = mini(n, 2000)
-              playback.push_buffer(synth.fill(n, rpm, throttle_in, brake_in, slip, speed_ms, contact_count > 0, gear))
-          EOF
-          cat > game/ai_driver.gd <<'EOF'
-          # Corredor: el jugador o una IA. La IA sigue la línea grabada en la vuelta de reconocimiento.
-          extends RefCounted
-
-          var car
-          var is_player = false
-          var name_str = "TÚ"
-          var lane = 0.0
-          var skill = 1.0
-          var idx = -1
-          var laps = 0
-          var done = false
-          var finish_time = -1.0
-          var rank = 0
-          var stuck_t = 0.0
-
-
-          # Índice del punto de la traza más cercano a pos. Busca en una ventana alrededor de hint
-          # (rápido) y solo recorre toda la traza si el coche está lejos de ella.
-          static func closest(trace: PackedVector3Array, pos: Vector3, hint: int) -> int:
-              var n = trace.size()
-              if n == 0:
-                  return 0
-              var best = 0
-              var bd = INF
-              if hint >= 0:
-                  for k in range(-40, 41):
-                      var i = posmod(hint + k, n)
-                      var d = trace[i].distance_squared_to(pos)
-                      if d < bd:
-                          bd = d
-                          best = i
-                  if bd < 1600.0:
-                      return best
-              bd = INF
-              for i in range(n):
-                  var d2 = trace[i].distance_squared_to(pos)
-                  if d2 < bd:
-                      bd = d2
-                      best = i
-              return best
-
-
-          func track_progress(trace: PackedVector3Array):
-              var n = trace.size()
-              if n == 0 or car == null:
-                  return
-              var ni = closest(trace, car.global_position, idx)
-              if idx >= 0:
-                  if idx > n * 3 / 4 and ni < n / 4:
-                      laps += 1
-                  elif idx < n / 4 and ni > n * 3 / 4:
-                      laps = maxi(0, laps - 1)
-              idx = ni
-
-
-          func drive(delta: float, trace: PackedVector3Array, finished: bool):
-              var n = trace.size()
-              if car == null or n < 10:
-                  return
-              if finished or idx < 0:
-                  car.steer_in = 0.0
-                  car.throttle_in = 0.0
-                  car.brake_in = 0.5
-                  car.handbrake_in = false
-                  return
-              var spd = car.speed_ms
-              var look = 8 + int(spd * 0.35)
-              var t_i = (idx + look) % n
-              var tan_a = _flat(trace[(idx + 2) % n] - trace[idx])
-              var tan_b = _flat(trace[(t_i + 2) % n] - trace[t_i])
-              var turn = absf(tan_a.angle_to(tan_b))
-              var tgt = trace[t_i] + tan_b.cross(Vector3.UP) * lane
-              var local = car.global_transform.basis.inverse() * (tgt - car.global_position)
-              var ang = atan2(local.x, -local.z)
-              var steer = clampf(ang * 2.5, -1.0, 1.0)
-              var tv = lerpf(62.0, 22.0, clampf(turn * 2.2, 0.0, 1.0)) * skill
-              var th = 0.0
-              var br = 0.0
-              if spd < tv - 1.0:
-                  th = 1.0
-              elif spd > tv + 2.0:
-                  br = clampf((spd - tv) / 8.0, 0.0, 1.0)
-              else:
-                  th = 0.35
-              if not car.input_locked and spd < 1.5 and th > 0.5:
-                  stuck_t += delta
-                  if stuck_t > 4.0:
-                      stuck_t = 0.0
-                      car.respawn()
-              else:
-                  stuck_t = 0.0
-              car.steer_in = steer
-              car.throttle_in = th
-              car.brake_in = br
-              car.handbrake_in = false
-
-
-          func _flat(v: Vector3) -> Vector3:
-              var f = Vector3(v.x, 0.0, v.z)
-              if f.length() < 0.001:
-                  return Vector3(0.0, 0.0, -1.0)
-              return f.normalized()
-          EOF
-          cat > game/menu.gd <<'EOF'
-          # Pantalla de inicio con los modos de juego.
-          extends Control
-
-          signal chosen(id)
-
-          const OPTS = [
-              ["LIBRE", "Sin rivales. Traza el circuito y cronometra."],
-              ["COMPETENCIA", "3 rivales IA. Vuelta de reconocimiento y carrera."],
-              ["SORPRESA", "Cada carrera trae un cambio aleatorio."]
-          ]
-
-          var font
-          var u = 1.0
-          var rects = []
-
-
-          func _ready():
-              set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-              mouse_filter = Control.MOUSE_FILTER_IGNORE
-              font = ThemeDB.fallback_font
-              resized.connect(_layout)
-              _layout()
-
-
-          func _layout():
-              var W = size.x
-              var H = size.y
-              u = H / 720.0
-              rects.clear()
-              var bw = minf(600.0 * u, W * 0.8)
-              var bh = 108.0 * u
-              var gap = 20.0 * u
-              for i in range(OPTS.size()):
-                  rects.append(Rect2(W * 0.5 - bw * 0.5, H * 0.42 + i * (bh + gap), bw, bh))
-              queue_redraw()
-
-
-          func _input(event):
-              if not visible:
-                  return
-              var pos = null
-              if event is InputEventScreenTouch and event.pressed:
-                  pos = event.position
-              elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-                  pos = event.position
-              if pos == null:
-                  return
-              for i in range(rects.size()):
-                  if rects[i].has_point(pos):
-                      get_viewport().set_input_as_handled()
-                      chosen.emit(i)
-                      return
-
-
-          func _text(t, center, fs, col):
-              var s = int(fs)
-              var w = font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, s)
-              var p = Vector2(center.x - w.x * 0.5, center.y + fs * 0.35)
-              draw_string(font, p + Vector2(2, 2), t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, Color(0, 0, 0, 0.6))
-              draw_string(font, p, t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, col)
-
-
-          func _draw():
-              var W = size.x
-              var H = size.y
-              draw_rect(Rect2(Vector2.ZERO, size), Color(0.0, 0.02, 0.06, 0.35))
-              _text("SUBARU", Vector2(W * 0.5, H * 0.14), 92.0 * u, Color(1, 1, 1, 1))
-              _text("RACING", Vector2(W * 0.5, H * 0.14 + 80.0 * u), 46.0 * u, Color(1.0, 0.8, 0.2, 1))
-              _text("IMPREZA WRX STI  ·  CIRCUITO", Vector2(W * 0.5, H * 0.3), 22.0 * u, Color(1, 1, 1, 0.8))
-              for i in range(rects.size()):
-                  var r = rects[i]
-                  draw_rect(r, Color(0.03, 0.12, 0.55, 0.9))
-                  draw_rect(r, Color(1, 1, 1, 0.5), false, 2.0)
-                  _text(OPTS[i][0], Vector2(r.get_center().x, r.position.y + 40.0 * u), 40.0 * u, Color(1, 1, 1, 1))
-                  _text(OPTS[i][1], Vector2(r.get_center().x, r.position.y + 80.0 * u), 19.0 * u, Color(1, 1, 1, 0.8))
-          EOF
-          cat > game/hud.gd <<'EOF'
-          extends Control
-
-          var car
-          var main
-          var font
-          var active = false
-          var sb_idle
-          var sb_press
-          var btns = {}
-          var touches = {}
-          var orbit_index = -999
-          var steer_in = 0.0
-          var thr_in = 0.0
-          var brk_in = 0.0
-          var u = 1.0
-          var sound_on = true
-
-          var lap = 0
-          var lap_time = 0.0
-          var last_lap = -1.0
-          var best_lap = -1.0
-          var msg = ""
-          var toast = ""
-          var banner = ""
-          var race_mode = false
-          var race_pos = 1
-          var race_total = 4
-          var race_lap = 1
-          var race_laps = 3
-          var results = []
-
-          const HOLD = ["left", "right", "gas", "brake", "hand"]
-          const CAM_NAMES = ["CHASE", "LEJOS", "CAPÓ"]
-          const MOUSE_ID = -7
-
-
-          func _ready():
-              set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-              mouse_filter = Control.MOUSE_FILTER_IGNORE
-              font = ThemeDB.fallback_font
-              resized.connect(_layout)
-              _layout()
-
-
-          func _mk_style(col):
-              var sb = StyleBoxFlat.new()
-              sb.bg_color = col
-              sb.set_corner_radius_all(int(18.0 * u))
-              sb.border_color = Color(1, 1, 1, 0.35)
-              sb.set_border_width_all(2)
-              return sb
-
-
-          func _layout():
-              var W = size.x
-              var H = size.y
-              u = H / 720.0
-              sb_idle = _mk_style(Color(1, 1, 1, 0.14))
-              sb_press = _mk_style(Color(1, 1, 1, 0.42))
-              btns["left"] = Rect2(30.0 * u, H - 190.0 * u, 170.0 * u, 150.0 * u)
-              btns["right"] = Rect2(220.0 * u, H - 190.0 * u, 170.0 * u, 150.0 * u)
-              btns["gas"] = Rect2(W - 210.0 * u, H - 260.0 * u, 180.0 * u, 220.0 * u)
-              btns["brake"] = Rect2(W - 410.0 * u, H - 200.0 * u, 180.0 * u, 160.0 * u)
-              btns["hand"] = Rect2(W - 410.0 * u, H - 310.0 * u, 180.0 * u, 90.0 * u)
-              var names = ["cam", "color", "reset", "snd", "menu"]
-              var bw = 110.0 * u
-              for i in range(names.size()):
-                  btns[names[i]] = Rect2(W - (i + 1) * (bw + 12.0 * u), 16.0 * u, bw, 58.0 * u)
-
-
-          func _hit(pos):
-              for k in btns:
-                  if btns[k].has_point(pos):
-                      return k
-              return ""
-
-
-          # Entrada unificada: touch, ratón. Los botones se mantienen pulsados; fuera de ellos arrastrar gira la cámara.
-          func _input(event):
-              if not active or car == null or main == null:
-                  return
-              if event is InputEventScreenTouch:
-                  if event.pressed:
-                      _down(event.index, event.position)
-                  else:
-                      _up(event.index)
-              elif event is InputEventScreenDrag:
-                  _drag(event.index, event.relative, event.position)
-              elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-                  if event.pressed:
-                      _down(MOUSE_ID, event.position)
-                  else:
-                      _up(MOUSE_ID)
-              elif event is InputEventMouseMotion:
-                  if event.button_mask & MOUSE_BUTTON_MASK_RIGHT:
-                      main.orbit_by(event.relative)
-                  elif event.button_mask & MOUSE_BUTTON_MASK_LEFT:
-                      _drag(MOUSE_ID, event.relative, event.position)
-
-
-          func _down(id, pos):
-              var b = _hit(pos)
-              if b != "":
-                  touches[id] = b
-                  _tap(b)
-              else:
-                  orbit_index = id
-
-
-          func _up(id):
-              touches.erase(id)
-              if orbit_index == id:
-                  orbit_index = -999
-
-
-          func _drag(id, rel, pos):
-              if touches.has(id):
-                  var b = _hit(pos)
-                  if b != "" and HOLD.has(b) and HOLD.has(touches[id]):
-                      touches[id] = b
-              elif id == orbit_index:
-                  main.orbit_by(rel)
-
-
-          func _tap(id):
-              if id == "cam":
-                  main.cycle_camera()
-              elif id == "color":
-                  car.next_paint()
-              elif id == "reset":
-                  main.respawn()
-              elif id == "snd":
-                  sound_on = not sound_on
-                  car.set_sound(sound_on)
-              elif id == "menu":
-                  main.go_menu()
-
-
-          func _held(id):
-              return touches.values().has(id)
-
-
-          func _process(delta):
-              if not active or car == null:
-                  return
-              var left = _held("left") or Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A)
-              var right = _held("right") or Input.is_key_pressed(KEY_RIGHT) or Input.is_key_pressed(KEY_D)
-              var gas = _held("gas") or Input.is_key_pressed(KEY_UP) or Input.is_key_pressed(KEY_W)
-              var brake = _held("brake") or Input.is_key_pressed(KEY_DOWN) or Input.is_key_pressed(KEY_S)
-              var hand = _held("hand") or Input.is_key_pressed(KEY_SPACE)
-              var st = 0.0
-              if right:
-                  st += 1.0
-              if left:
-                  st -= 1.0
-              var rate = 5.5
-              if st != 0.0:
-                  rate = 3.2
-              steer_in = move_toward(steer_in, st, delta * rate)
-              thr_in = move_toward(thr_in, 1.0 if gas else 0.0, delta * 5.0)
-              brk_in = move_toward(brk_in, 1.0 if brake else 0.0, delta * 7.0)
-              car.steer_in = steer_in
-              car.throttle_in = thr_in
-              car.brake_in = brk_in
-              car.handbrake_in = hand
-              queue_redraw()
-
-
-          func _text(t, center, fs, col):
-              var s = int(fs)
-              var w = font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, s)
-              var p = Vector2(center.x - w.x * 0.5, center.y + fs * 0.35)
-              draw_string(font, p + Vector2(2, 2), t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, Color(0, 0, 0, 0.6))
-              draw_string(font, p, t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, col)
-
-
-          func _text_left(t, pos, fs, col):
-              var s = int(fs)
-              draw_string(font, pos + Vector2(2, 2), t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, Color(0, 0, 0, 0.6))
-              draw_string(font, pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, col)
-
-
-          func _arrow(r, dir):
-              var c = r.get_center()
-              var s = r.size.y * 0.28
-              var pts = PackedVector2Array()
-              if dir < 0:
-                  pts = PackedVector2Array([c + Vector2(-s, 0), c + Vector2(s * 0.7, -s), c + Vector2(s * 0.7, s)])
-              else:
-                  pts = PackedVector2Array([c + Vector2(s, 0), c + Vector2(-s * 0.7, -s), c + Vector2(-s * 0.7, s)])
-              draw_colored_polygon(pts, Color(1, 1, 1, 0.85))
-
-
-          func _fmt(t):
-              if t < 0.0:
-                  return "--:--.--"
-              var m = int(t) / 60
-              var s = t - float(m) * 60.0
-              return "%d:%05.2f" % [m, s]
-
-
-          func _draw():
-              if not active or car == null:
-                  return
-              var W = size.x
-              var H = size.y
-              var white = Color(1, 1, 1, 0.92)
-
-              for k in btns:
-                  var r = btns[k]
-                  var held = HOLD.has(k) and _held(k)
-                  draw_style_box(sb_press if held else sb_idle, r)
-                  if k == "left":
-                      _arrow(r, -1)
-                  elif k == "right":
-                      _arrow(r, 1)
-                  elif k == "gas":
-                      _text("GAS", r.get_center(), 46.0 * u, white)
-                  elif k == "brake":
-                      _text("BRAKE", r.get_center(), 34.0 * u, white)
-                  elif k == "hand":
-                      _text("HAND", r.get_center(), 28.0 * u, white)
-                  elif k == "cam":
-                      _text(CAM_NAMES[main.cam_mode], r.get_center(), 20.0 * u, white)
-                  elif k == "color":
-                      _text("COLOR", r.get_center(), 20.0 * u, white)
-                  elif k == "reset":
-                      _text("RESET", r.get_center(), 20.0 * u, white)
-                  elif k == "snd":
-                      _text("SND ON" if sound_on else "SND OFF", r.get_center(), 18.0 * u, white)
-                  elif k == "menu":
-                      _text("MENÚ", r.get_center(), 22.0 * u, white)
-
-              # velocimetro
-              var cx = W * 0.5
-              var gtxt = str(car.gear)
-              if car.fwd_speed < -0.8:
-                  gtxt = "R"
-              elif car.speed_ms < 0.5 and car.throttle_in < 0.05:
-                  gtxt = "N"
-              _text(str(int(car.speed_kmh)), Vector2(cx, H - 120.0 * u), 92.0 * u, Color(1, 1, 1, 1))
-              _text("km/h", Vector2(cx, H - 56.0 * u), 24.0 * u, Color(1, 1, 1, 0.8))
-              _text(gtxt, Vector2(cx - 150.0 * u, H - 120.0 * u), 64.0 * u, Color(1.0, 0.8, 0.2, 1))
-
-              # barra de RPM
-              var bw = 340.0 * u
-              var bh = 14.0 * u
-              var bx = cx - bw * 0.5
-              var by = H - 28.0 * u
-              draw_rect(Rect2(bx, by, bw, bh), Color(0, 0, 0, 0.5))
-              var f = clampf(car.rpm / 7500.0, 0.0, 1.0)
-              var col = Color(1, 1, 1, 0.9).lerp(Color(1, 0.15, 0.1, 1), clampf((car.rpm - 5800.0) / 1200.0, 0.0, 1.0))
-              draw_rect(Rect2(bx, by, bw * f, bh), col)
-
-              # tiempos (esquina superior izquierda)
-              _text_left("TIEMPO " + _fmt(lap_time), Vector2(24.0 * u, 44.0 * u), 30.0 * u, Color(1, 1, 1, 1))
-              _text_left("MEJOR " + _fmt(best_lap), Vector2(24.0 * u, 84.0 * u), 22.0 * u, Color(0.5, 1.0, 0.6, 1))
-              _text_left("ÚLTIMA " + _fmt(last_lap), Vector2(24.0 * u, 112.0 * u), 22.0 * u, white)
-
-              # modo carrera (centro superior)
-              if race_mode:
-                  _text("P%d/%d" % [race_pos, race_total], Vector2(cx, 64.0 * u), 56.0 * u, Color(1, 1, 1, 1))
-                  _text("VUELTA %d/%d" % [race_lap, race_laps], Vector2(cx, 112.0 * u), 26.0 * u, white)
-              if banner != "":
-                  _text(banner, Vector2(cx, 150.0 * u), 22.0 * u, Color(1.0, 0.9, 0.3, 1))
-
-              if msg != "":
-                  _text(msg, Vector2(cx, H * 0.30), 130.0 * u, Color(1, 1, 1, 1))
-              if toast != "":
-                  _text(toast, Vector2(cx, H * 0.18), 40.0 * u, Color(1.0, 0.9, 0.3, 1))
-
-              # resultados al terminar
-              if results.size() > 0:
-                  var ph = (results.size() * 44.0 + 30.0) * u
-                  draw_rect(Rect2(cx - 260.0 * u, H * 0.42 - 40.0 * u, 520.0 * u, ph), Color(0, 0, 0, 0.6))
-                  for i in range(results.size()):
-                      _text(results[i], Vector2(cx, H * 0.42 + (i * 44.0) * u), 26.0 * u, Color(1, 1, 1, 1))
-          EOF
-          cat > game/main.gd <<'EOF'
-          extends Node3D
-
-          const CarScript = preload("res://car.gd")
-          const HudScript = preload("res://hud.gd")
-          const MenuScript = preload("res://menu.gd")
-          const RacerScript = preload("res://ai_driver.gd")
-          const TRACK_PATH = "res://models/circuito_forza.glb"
-          const CAR_PATH = "res://models/2006_subaru_impreza_wrx_sti.glb"
-          const AI_COUNT = 3
-          const RACE_LAPS = 3
-          const TRACE_STEP = 3.0
-          const ORBIT_RETURN = 3.0
-          const AI_NAMES = ["NORDEN", "VOLTA", "RAPTOR"]
-          const AI_LANES = [-2.4, 2.6, -0.4]
-          const MODS = ["TURBO", "GRAVEDAD LUNAR", "NIEBLA DENSA", "NOCHE", "COLORES LOCOS"]
-          const SKY_TOP = Color(0.2, 0.42, 0.85)
-          const SKY_HOR = Color(0.7, 0.8, 0.92)
-          const DEF_FOG = Color(0.72, 0.8, 0.9)
-          const DEF_FOG_DENSITY = 0.0008
-          const DEF_SUN = 1.25
-          const DEF_AMBIENT = 0.9
-
-          enum State { MENU, FREE, RECON, GRID, RACE, FINISHED }
-
-          var state = State.MENU
-          var car_scene
-          var track
-          var car
-          var camera
-          var hud
-          var menu
-          var env
-          var sun
-          var sky_mat
-          var spawn_xf = Transform3D.IDENTITY
-          var fwd0 = Vector3.RIGHT
-          var line_center = Vector3.ZERO
-          var line_half = 14.0
-
-          var cam_mode = 0
-          var cam_dir = Vector3.RIGHT
-          var cam_y = 0.0
-          var orbit_yaw = 0.0
-          var orbit_pitch = 0.0
-          var orbit_idle = 99.0
-          var attract_yaw = 0.0
-
-          var countdown = -1.0
-          var started = false
-          var armed = false
-          var lap = 0
-          var lap_time = 0.0
-          var last_lap = -1.0
-          var best_lap = -1.0
-          var prev_pos = Vector3.ZERO
-          var have_prev = false
-          var toast_t = 0.0
-
-          # traza del circuito (la graba la primera vuelta; la IA la sigue)
-          var trace = PackedVector3Array()
-          var trace_ready = false
-          var recording = false
-          var rec_last = Vector3.ZERO
-
-          var racers = []
-          var player_r
-          var race_time = 0.0
-          var finish_count = 0
-          var surprise = false
-          var shake = 0.0
-          var mod_name = ""
-
-
-          func _ready():
-              randomize()
-              Engine.max_fps = 60
-              DisplayServer.screen_set_keep_on(true)
-              _build_environment()
-
-              var track_scene = load(TRACK_PATH)
-              car_scene = load(CAR_PATH)
-              if track_scene == null or car_scene == null:
-                  _fatal("No se pudieron cargar los modelos .glb")
-                  return
-
-              track = track_scene.instantiate()
-              add_child(track)
-              _ensure_collision(track)
-              _find_spawn()
-
-              car = CarScript.new()
-              car.build(car_scene, true)
-              add_child(car)
-              car.global_transform = spawn_xf
-              car.set_spawn(spawn_xf)
-              car.crashed.connect(_on_crash)
-
-              player_r = RacerScript.new()
-              player_r.car = car
-              player_r.is_player = true
-              racers = [player_r]
-
-              camera = Camera3D.new()
-              camera.near = 0.08
-              camera.far = 2000.0
-              camera.fov = 68.0
-              add_child(camera)
-              camera.current = true
-              cam_dir = fwd0
-              cam_y = spawn_xf.origin.y + 2.0
-
-              var layer = CanvasLayer.new()
-              add_child(layer)
-              hud = HudScript.new()
-              layer.add_child(hud)
-              hud.car = car
-              hud.main = self
-              menu = MenuScript.new()
-              layer.add_child(menu)
-              menu.chosen.connect(_on_menu_choice)
-
-              go_menu()
-
-
-          func _fatal(text):
-              var layer = CanvasLayer.new()
-              add_child(layer)
-              var l = Label.new()
-              l.text = text
-              l.add_theme_font_size_override("font_size", 36)
-              l.position = Vector2(40, 40)
-              layer.add_child(l)
-
-
-          func _build_environment():
-              sky_mat = ProceduralSkyMaterial.new()
-              sky_mat.sky_top_color = SKY_TOP
-              sky_mat.sky_horizon_color = SKY_HOR
-              sky_mat.ground_horizon_color = Color(0.65, 0.72, 0.78)
-              sky_mat.ground_bottom_color = Color(0.3, 0.35, 0.35)
-              var sky = Sky.new()
-              sky.sky_material = sky_mat
-              env = Environment.new()
-              env.background_mode = Environment.BG_SKY
-              env.sky = sky
-              env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-              env.ambient_light_energy = DEF_AMBIENT
-              env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-              env.fog_enabled = true
-              env.fog_light_color = DEF_FOG
-              env.fog_density = DEF_FOG_DENSITY
-              env.adjustment_enabled = true
-              env.adjustment_saturation = 1.1
-              env.adjustment_contrast = 1.05
-              var we = WorldEnvironment.new()
-              we.environment = env
-              add_child(we)
-
-              sun = DirectionalLight3D.new()
-              sun.rotation_degrees = Vector3(-48.0, -35.0, 0.0)
-              sun.light_energy = DEF_SUN
-              sun.shadow_enabled = true
-              sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-              sun.directional_shadow_max_distance = 140.0
-              add_child(sun)
-
-
-          func _all_meshes(n, out):
-              if n is MeshInstance3D:
-                  out.append(n)
-              for c in n.get_children():
-                  _all_meshes(c, out)
-              return out
-
-
-          func _ensure_collision(root):
-              var keys = ["pista", "pianos", "grava", "terreno", "muros"]
-              for mi in _all_meshes(root, []):
-                  var nm = String(mi.name).to_lower()
-                  var hit = false
-                  for k in keys:
-                      if nm.contains(k):
-                          hit = true
-                  if not hit:
-                      continue
-                  var has_body = mi.get_parent() is StaticBody3D
-                  for c in mi.get_children():
-                      if c is StaticBody3D:
-                          has_body = true
-                  if not has_body:
-                      mi.create_trimesh_collision()
-
-
-          func _find_mesh(root, key):
-              for mi in _all_meshes(root, []):
-                  if String(mi.name).to_lower().contains(key):
-                      return mi
-              return null
-
-
-          func _find_spawn():
-              var sp = track.find_child("*Spawn*", true, false)
-              if sp != null and sp is Node3D:
-                  spawn_xf = sp.global_transform.orthonormalized()
-                  spawn_xf.origin += Vector3(0.0, 0.25, 0.0)
-              else:
-                  spawn_xf = Transform3D(Basis(), Vector3(0.0, 8.0, 0.0))
-              fwd0 = -spawn_xf.basis.z
-              fwd0.y = 0.0
-              fwd0 = fwd0.normalized()
-              var lm = _find_mesh(track, "linea_meta")
-              if lm != null:
-                  var bb = lm.global_transform * lm.get_aabb()
-                  line_center = bb.get_center()
-                  line_half = maxf(bb.size.x, bb.size.z) * 0.5 + 4.0
-              else:
-                  line_center = spawn_xf.origin + fwd0 * 12.0
-                  line_half = 12.0
-
-
-          # ================= MENÚ Y MODOS =================
-          func go_menu():
-              state = State.MENU
-              Engine.time_scale = 1.0
-              shake = 0.0
-              _remove_ais()
-              _clear_mods()
-              countdown = -1.0
-              _reset_player()
-              car.input_locked = true
-              hud.active = false
-              hud.visible = false
-              hud.results = []
-              hud.msg = ""
-              hud.banner = ""
-              menu.visible = true
-              menu.queue_redraw()
-
-
-          func _on_menu_choice(i):
-              menu.visible = false
-              hud.visible = true
-              hud.active = true
-              hud.results = []
-              hud.banner = ""
-              surprise = (i == 2)
-              if i == 0:
-                  _start_free()
-              else:
-                  _start_competition()
-
-
-          func _start_free():
-              state = State.FREE
-              _remove_ais()
-              _clear_mods()
-              _reset_lap()
-              _reset_player()
-              car.input_locked = false
-              hud.msg = ""
-
-
-          func _start_competition():
-              _remove_ais()
-              _clear_mods()
-              _reset_lap()
-              _reset_player()
-              car.input_locked = false
-              hud.msg = ""
-              if trace_ready:
-                  _start_grid()
-              else:
-                  state = State.RECON
-                  hud.banner = "VUELTA DE RECONOCIMIENTO: traza el circuito"
-
-
-          func _start_grid():
-              state = State.GRID
-              _remove_ais()
-              for k in range(AI_COUNT):
-                  racers.append(_make_ai(k))
-              if surprise:
-                  _apply_mod(MODS[randi() % MODS.size()])
-              else:
-                  _clear_mods()
-              finish_count = 0
-              race_time = 0.0
-              _place_racer(racers[0], AI_COUNT)
-              for k in range(AI_COUNT):
-                  _place_racer(racers[k + 1], k)
-              countdown = 3.5
-              hud.msg = ""
-              hud.banner = ("SORPRESA: " + mod_name) if surprise else "COMPETENCIA"
-              hud.results = []
-
-
-          func _make_ai(k):
-              var c = CarScript.new()
-              c.build(car_scene, false)
-              add_child(c)
-              c.configure(k + 1, true)
-              var r = RacerScript.new()
-              r.car = c
-              r.name_str = AI_NAMES[k]
-              r.lane = AI_LANES[k]
-              r.skill = randf_range(0.9, 1.04)
-              return r
-
-
-          func _remove_ais():
-              for r in racers:
-                  if not r.is_player and is_instance_valid(r.car):
-                      r.car.queue_free()
-              racers = [player_r]
-
-
-          # Coloca un corredor en parrilla, detrás de la línea de meta (slot 0 = más adelante)
-          func _place_racer(r, slot):
-              var n = trace.size()
-              var i = posmod(n - 8 * (slot + 1), n)
-              var t = _flat(trace[(i + 1) % n] - trace[i])
-              var pos = trace[i] + t.cross(Vector3.UP) * r.lane + Vector3(0.0, 0.3, 0.0)
-              var xf = Transform3D(Basis.looking_at(t, Vector3.UP), pos)
-              r.car.set_spawn(xf)
-              r.car.global_transform = xf
-              r.car.linear_velocity = Vector3.ZERO
-              r.car.angular_velocity = Vector3.ZERO
-              r.car.gear = 1
-              r.car.repair()
-              r.car.input_locked = true
-              r.idx = i
-              r.laps = 0
-              r.done = false
-              r.rank = 0
-              r.finish_time = -1.0
-              r.stuck_t = 0.0
-              if r.is_player:
-                  have_prev = false
-
-
-          func _grid_logic(delta):
-              countdown -= delta
-              if countdown > 2.5:
-                  hud.msg = "3"
-              elif countdown > 1.5:
-                  hud.msg = "2"
-              elif countdown > 0.5:
-                  hud.msg = "1"
-              elif countdown > -0.8:
-                  hud.msg = "GO!"
-              else:
-                  hud.msg = ""
-              for r in racers:
-                  r.car.input_locked = countdown > 0.5
-              if countdown <= -0.8:
-                  state = State.RACE
-
-
-          # ================= MODS SORPRESA =================
-          func _clear_mods():
-              mod_name = ""
-              env.fog_density = DEF_FOG_DENSITY
-              env.fog_light_color = DEF_FOG
-              env.ambient_light_energy = DEF_AMBIENT
-              sun.light_energy = DEF_SUN
-              sky_mat.sky_top_color = SKY_TOP
-              sky_mat.sky_horizon_color = SKY_HOR
-              for r in racers:
-                  if is_instance_valid(r.car):
-                      r.car.power_mult = 1.0
-                      r.car.gravity_scale = 1.0
-
-
-          func _apply_mod(m):
-              _clear_mods()
-              mod_name = m
-              for r in racers:
-                  if m == "TURBO":
-                      r.car.power_mult = 1.6
-                  elif m == "GRAVEDAD LUNAR":
-                      r.car.gravity_scale = 0.4
-                  elif m == "COLORES LOCOS":
-                      r.car.set_paint(randi() % CarScript.PAINTS.size())
-              if m == "NIEBLA DENSA":
-                  env.fog_density = 0.012
-              elif m == "NOCHE":
-                  sun.light_energy = 0.2
-                  env.ambient_light_energy = 0.4
-                  sky_mat.sky_top_color = Color(0.01, 0.02, 0.06)
-                  sky_mat.sky_horizon_color = Color(0.05, 0.07, 0.12)
-
-
-          # ================= ESTADO DE CARRERA =================
-          func _reset_lap():
-              started = false
-              armed = false
-              lap = 0
-              lap_time = 0.0
-              last_lap = -1.0
-              best_lap = -1.0
-              recording = false
-              have_prev = false
-
-
-          func _reset_player():
-              car.set_spawn(spawn_xf)
-              car.global_transform = spawn_xf
-              car.linear_velocity = Vector3.ZERO
-              car.angular_velocity = Vector3.ZERO
-              car.gear = 1
-              car.repair()
-              have_prev = false
-
-
-          func _physics_process(delta):
-              if car == null or state == State.MENU:
-                  return
-              _lap_logic(delta)
-              if state == State.RECON:
-                  if trace_ready:
-                      _start_grid()
-                  return
-              if state == State.FREE:
-                  return
-              if state == State.GRID:
-                  _grid_logic(delta)
-              elif state == State.RACE:
-                  race_time += delta
-              _update_racers(delta)
-
-
-          func _update_racers(delta):
-              for r in racers:
-                  r.track_progress(trace)
-                  if not r.done and r.laps >= RACE_LAPS and state != State.GRID:
-                      _finish(r)
-                  if not r.is_player:
-                      r.drive(delta, trace, r.done)
-
-
-          func _finish(r):
-              finish_count += 1
-              r.done = true
-              r.rank = finish_count
-              r.finish_time = race_time
-              if r.is_player:
-                  state = State.FINISHED
-                  hud.msg = "¡FIN!"
-
-
-          # Orden de carrera: primero los que han terminado, luego por distancia recorrida
-          func _key(r):
-              if r.done:
-                  return 1.0e9 - float(r.rank)
-              return float(r.laps * trace.size() + maxi(r.idx, 0))
-
-
-          func _ranked():
-              var arr = racers.duplicate()
-              arr.sort_custom(func(a, b): return _key(a) > _key(b))
-              return arr
-
-
-          func _result_lines():
-              var out = []
-              var arr = _ranked()
-              for i in range(arr.size()):
-                  var r = arr[i]
-                  var nm = "TÚ" if r.is_player else r.name_str
-                  var tail = hud._fmt(r.finish_time) if r.done else "en pista"
-                  out.append("%d. %s   %s" % [i + 1, nm, tail])
-              return out
-
-
-          # Cronometraje por línea de meta (vuelta libre y reconocimiento)
-          func _lap_logic(delta):
-              var cp = car.global_position
-              if not have_prev:
-                  prev_pos = cp
-                  have_prev = true
-              var d_prev = (prev_pos - line_center).dot(fwd0)
-              var d_cur = (cp - line_center).dot(fwd0)
-              var side = absf((cp - line_center).dot(fwd0.cross(Vector3.UP)))
-              var dist = Vector2(cp.x - line_center.x, cp.z - line_center.z).length()
-
-              if started:
-                  lap_time += delta
-                  if dist > 140.0:
-                      armed = true
-
-              if recording and car.all_road and cp.distance_to(rec_last) > TRACE_STEP:
-                  trace.append(cp)
-                  rec_last = cp
-
-              if d_prev < 0.0 and d_cur >= 0.0 and side < line_half and car.fwd_speed > 0.0:
-                  if not started:
-                      started = true
-                      lap = 1
-                      lap_time = 0.0
-                      if not trace_ready:
-                          recording = true
-                          trace.clear()
-                          trace.append(cp)
-                          rec_last = cp
-                  elif armed:
-                      last_lap = lap_time
-                      if best_lap < 0.0 or last_lap < best_lap:
-                          best_lap = last_lap
-                      hud.toast = "VUELTA " + str(lap) + "  " + hud._fmt(last_lap)
-                      toast_t = 3.5
-                      lap += 1
-                      lap_time = 0.0
-                      armed = false
-                      if recording:
-                          trace_ready = trace.size() > 50
-                          recording = not trace_ready
-                          if recording:
-                              trace.clear()
-                              trace.append(cp)
-                              rec_last = cp
-              prev_pos = cp
-
-              if toast_t > 0.0:
-                  toast_t -= delta
-                  if toast_t <= 0.0:
-                      hud.toast = ""
-
-
-          # ================= IA: ver _ranked / drive en ai_driver.gd =================
-          func _flat(v):
-              var f = Vector3(v.x, 0.0, v.z)
-              if f.length() < 0.001:
-                  return Vector3(0.0, 0.0, -1.0)
-              return f.normalized()
-
-
-          func _on_crash(dv: float, _pos: Vector3):
-              shake = maxf(shake, clampf(dv / 10.0, 0.0, 1.0))
-              if dv > 10.0:
-                  Engine.time_scale = 0.4
-                  get_tree().create_timer(0.45, true, false, true).timeout.connect(_end_slowmo)
-
-
-          func _end_slowmo():
-              Engine.time_scale = 1.0
-
-
-          func respawn():
-              car.respawn()
-              have_prev = false
-
-
-          func cycle_camera():
-              cam_mode = (cam_mode + 1) % 3
-              orbit_yaw = 0.0
-              orbit_pitch = 0.0
-
-
-          # Llamado desde el HUD al arrastrar fuera de los botones
-          func orbit_by(rel: Vector2):
-              orbit_yaw -= rel.x * 0.008
-              orbit_pitch = clampf(orbit_pitch - rel.y * 0.004, -0.1, 0.8)
-              orbit_idle = 0.0
-
-
-          func _update_hud():
-              hud.lap = lap
-              hud.lap_time = lap_time
-              hud.last_lap = last_lap
-              hud.best_lap = best_lap
-              if state == State.FREE or state == State.RECON or state == State.MENU:
-                  hud.race_mode = false
-                  hud.results = []
-                  return
-              hud.race_mode = true
-              hud.race_pos = _ranked().find(player_r) + 1
-              hud.race_total = racers.size()
-              hud.race_lap = mini(player_r.laps + 1, RACE_LAPS)
-              hud.race_laps = RACE_LAPS
-              hud.results = _result_lines() if state == State.FINISHED else []
-
-
-          func _process(delta):
-              if car == null or camera == null:
-                  return
-              if state == State.MENU:
-                  # modo demo: la cámara da vueltas al coche detrás del menú
-                  attract_yaw += delta * 0.2
-                  var c = car.global_position
-                  var off = Vector3(sin(attract_yaw), 0.0, cos(attract_yaw)) * 11.0
-                  camera.global_position = c + off + Vector3(0.0, 4.0, 0.0)
-                  camera.look_at(c + Vector3(0.0, 1.0, 0.0), Vector3.UP)
-                  camera.fov = 55.0
-                  return
-              _update_hud()
-              _update_camera(delta)
-
-
-          func _update_camera(delta):
-              var cb = car.global_transform
-              var fwd = -cb.basis.z
-              fwd.y = 0.0
-              if fwd.length() < 0.05:
-                  fwd = cam_dir
-              fwd = fwd.normalized()
-              var vel = car.linear_velocity
-              vel.y = 0.0
-              var tdir = fwd
-              if vel.length() > 8.0 and car.fwd_speed > 0.0:
-                  tdir = (fwd * 0.55 + vel.normalized() * 0.45).normalized()
-              cam_dir = cam_dir + (tdir - cam_dir) * clampf(delta * 5.0, 0.0, 1.0)
-              if cam_dir.length() < 0.01:
-                  cam_dir = fwd
-              cam_dir = cam_dir.normalized()
-
-              # tras soltar la cámara, vuelve suavemente detrás del coche
-              orbit_idle += delta
-              if orbit_idle > ORBIT_RETURN:
-                  var k = clampf(delta * 2.5, 0.0, 1.0)
-                  orbit_yaw = lerpf(orbit_yaw, 0.0, k)
-                  orbit_pitch = lerpf(orbit_pitch, 0.0, k)
-
-              var base_fov = 68.0
-              if cam_mode == 2:
-                  camera.global_transform = cb * Transform3D(Basis(Vector3.UP, orbit_yaw), Vector3(0.0, 1.12, -0.2))
-                  base_fov = 78.0
-              else:
-                  var dist = 6.0
-                  var h = 1.9
-                  if cam_mode == 1:
-                      dist = 9.0
-                      h = 3.2
-                  var off = cam_dir.rotated(Vector3.UP, orbit_yaw)
-                  var p = cb.origin - off * dist
-                  var ty = cb.origin.y + h + orbit_pitch * dist * 0.8
-                  cam_y = lerpf(cam_y, ty, clampf(delta * 6.0, 0.0, 1.0))
-                  p.y = cam_y
-                  camera.global_position = p
-                  camera.look_at(cb.origin + Vector3(0.0, 0.9, 0.0) + cam_dir * 2.0, Vector3.UP)
-              var tf = base_fov + clampf(car.speed_kmh / 250.0, 0.0, 1.0) * 20.0
-              camera.fov = lerpf(camera.fov, tf, clampf(delta * 3.0, 0.0, 1.0))
-              if shake > 0.0:
-                  camera.global_position += Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * shake * 0.2
-                  shake = maxf(0.0, shake - delta * 2.5)
-          EOF
-
-      - name: Instalar Godot 4.3 y plantillas de exportacion
-        run: |
-          set -e
-          GV=4.3-stable
-          curl -fsSL -o godot.zip "https://github.com/godotengine/godot/releases/download/$GV/Godot_v${GV}_linux.x86_64.zip"
-          curl -fsSL -o templates.tpz "https://github.com/godotengine/godot/releases/download/$GV/Godot_v${GV}_export_templates.tpz"
-          unzip -q godot.zip
-          sudo mv "Godot_v${GV}_linux.x86_64" /usr/local/bin/godot
-          sudo chmod +x /usr/local/bin/godot
-          mkdir -p "$HOME/.local/share/godot/export_templates/4.3.stable"
-          unzip -q templates.tpz -d tpl
-          mv tpl/templates/* "$HOME/.local/share/godot/export_templates/4.3.stable/"
-          godot --version
-
-      - name: Configurar Android SDK y firma debug
-        run: |
-          set -e
-          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          if [ ! -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
-            mkdir -p "$SDK/cmdline-tools"
-            curl -fsSL -o cmd.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-            unzip -q cmd.zip -d cmdtmp
-            mv cmdtmp/cmdline-tools "$SDK/cmdline-tools/latest"
-          fi
-          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "$SDK/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-34" > /dev/null
-          mkdir -p "$HOME/.android" "$HOME/.config/godot"
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkey -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          cat > "$HOME/.config/godot/editor_settings-4.3.tres" <<EOT
-          [gd_resource type="EditorSettings" format=3]
-
-          [resource]
-          export/android/android_sdk_path = "$SDK"
-          export/android/java_sdk_path = "$JAVA_HOME"
-          export/android/debug_keystore = "$HOME/.android/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
-          EOT
-
-      - name: Importar recursos (modelos y texturas)
-        run: |
-          cd game
-          godot --headless --import || true
-          godot --headless --import || true
-          ls -la models
-
-      - name: Revisar scripts (falla si hay errores de sintaxis)
-        run: |
-          fail=0
-          for s in car car_audio car_damage car_fx ai_driver menu hud main; do
-            echo "== $s.gd =="
-            out=$(godot --headless --path game --check-only --script "res://$s.gd" 2>&1) || true
-            echo "$out"
-            if echo "$out" | grep -qE "Parse Error|Compile Error|Failed to load script"; then
-              fail=1
-            fi
-          done
-          if [ "$fail" = "1" ]; then
-            echo "::error::Hay errores en los scripts, revisa el log de arriba"
+          if [ ! -f assets/models/Amyr.fbx ]; then
+            echo "::error::Falta assets/models/Amyr.fbx. Súbelo al repositorio."
             exit 1
           fi
 
-      - name: Exportar APK
+      - name: Escribir el juego desde este YAML
+        run: |
+          mkdir -p "$(dirname game.yaml)"
+          cat > game.yaml << 'AMYR_GAME_YAML_EOF'
+          meta:
+            name: Amyr - Pasillo Oscuro
+            engine: Godot 4.3
+            orientation: landscape
+            note: Todo el juego está en este archivo. Los binarios (FBX, WAV, JPG) quedan en assets/.
+          game:
+            title: Amyr - Pasillo Oscuro
+            version: 0.1.0
+            package: com.tuestudio.amyrhorror
+            orientation: landscape
+            target_sdk: 34
+            min_sdk: 24
+          graphics:
+            renderer: forward_plus
+            msaa: 2x
+            shadow_resolution: 2048
+            ssao: true
+            ssr: false
+            glow: true
+            fog:
+              enabled: true
+              density: 0.035
+              color: '#0a0d0c'
+            exposure: 1.1
+            target_fps: 60
+          player:
+            name: Guardia nocturno
+            view: first_person
+            eye_height: 1.65
+            walk_speed: 2.2
+            run_speed: 4.0
+            look_sensitivity: 0.12
+            touch_controls:
+              move_stick: left
+              look_area: right
+              buttons:
+              - flashlight
+              - run
+            flashlight:
+              enabled: true
+              battery_seconds: 120
+              intensity: 6.0
+              range: 22.0
+              angle_deg: 28
+              color: '#fff4d6'
+              flicker_when_low: true
+              sounds:
+                true: flashlight_click
+                false: flashlight_click
+                hum: flashlight_hum_loop
+            stamina:
+              max: 100
+              drain_per_second: 18
+              regen_per_second: 12
+            health:
+              max: 100
+              hit_damage: 100
+          camera:
+            near: 0.05
+            far: 120.0
+            fov: 72
+            head_bob: true
+            bob_amount: 0.035
+          game_over:
+            jumpscare_sound: jumpscare_stinger
+            screen_fade_seconds: 1.2
+            retry_delay_seconds: 3.0
+          model:
+            file: assets/models/Amyr.fbx
+            scale: 1.0
+            reference_texture: assets/textures/amyr_reference.jpg
+            height_meters: 1.9
+          skeleton:
+            root: Hips
+            head: Head
+            neck: Neck
+            spine:
+            - Spine
+            - Spine1
+            legs:
+              left:
+                root: LeftUpLeg
+                middle: LeftLeg
+                end: LeftFoot
+              right:
+                root: RightUpLeg
+                middle: RightLeg
+                end: RightFoot
+            arms:
+              left:
+                root: LeftArm
+                middle: LeftForeArm
+                end: LeftHand
+              right:
+                root: RightArm
+                middle: RightForeArm
+                end: RightHand
+          ik_legs:
+            enabled: true
+            step_length: 0.75
+            step_height: 0.18
+            step_duration: 0.42
+            run_step_duration: 0.24
+            foot_raycast_length: 2.0
+            hip_bob: 0.05
+            idle_sway: 0.01
+          ik_arms:
+            enabled: true
+            idle_pose: relaxed
+            attack_reach: 1.1
+          states:
+            idle:
+              description: Quieto, mirando al vacío. No te ve.
+              animation: idle
+              ik_legs: planted
+              sounds:
+                loop: ambience_hallway_loop
+                random:
+                - amyr_servo_creak
+                random_interval:
+                - 6
+                - 14
+              transitions:
+              - to: wander
+                after_seconds:
+                - 8
+                - 15
+              - to: hunt
+                when: player_seen
+            wander:
+              description: Camina por el escenario sin saber dónde estás.
+              animation: walk
+              speed: 1.2
+              ik_legs: stepping
+              sounds:
+                step: amyr_leg_step
+                random:
+                - amyr_servo_creak
+              transitions:
+              - to: idle
+                when: reached_waypoint
+              - to: hunt
+                when: player_seen
+            hunt:
+              description: Te ha visto. Corre hacia ti.
+              animation: run
+              speed: 3.4
+              ik_legs: stepping_fast
+              sounds:
+                loop: amyr_growl
+                step: amyr_leg_step
+              transitions:
+              - to: attack
+                when: distance_lt
+                distance: 1.6
+              - to: search
+                when: lost_sight_for_seconds
+                seconds: 6
+            search:
+              description: Pierde tu rastro y mira alrededor.
+              animation: idle
+              speed: 0.6
+              sounds:
+                random:
+                - amyr_servo_creak
+                - distant_clang
+              transitions:
+              - to: hunt
+                when: player_seen
+              - to: wander
+                after_seconds:
+                - 10
+                - 18
+            attack:
+              description: 'Ataque estilo FNAF: se queda quieto, se congela y se lanza.'
+              animation: attack
+              freeze_seconds: 0.8
+              ik_arms: attack_reach
+              sounds:
+                on_enter: amyr_attack_screech
+              on_hit: game_over
+              transitions:
+              - to: wander
+                when: missed
+          vision:
+            fov_deg: 110
+            range: 18
+            requires_light: true
+            flashlight_detect_range: 14
+            hearing_radius: 5
+            memory_seconds: 6
+          audio:
+            bus:
+              master: 1.0
+              music: 0.6
+              sfx: 1.0
+              ambience: 0.5
+              enemy: 1.0
+            sounds:
+              footstep_1:
+                file: assets/audio/footstep_1.wav
+                bus: sfx
+                volume_db: -6
+                pitch_var: 0.08
+              footstep_2:
+                file: assets/audio/footstep_2.wav
+                bus: sfx
+                volume_db: -6
+                pitch_var: 0.08
+              footstep_3:
+                file: assets/audio/footstep_3.wav
+                bus: sfx
+                volume_db: -6
+                pitch_var: 0.08
+              flashlight_click:
+                file: assets/audio/flashlight_click.wav
+                bus: sfx
+                volume_db: -3
+              flashlight_hum_loop:
+                file: assets/audio/flashlight_hum_loop.wav
+                bus: sfx
+                volume_db: -18
+                loop: true
+              ambience_hallway_loop:
+                file: assets/audio/ambience_hallway_loop.wav
+                bus: ambience
+                volume_db: -10
+                loop: true
+              heartbeat_loop:
+                file: assets/audio/heartbeat_loop.wav
+                bus: music
+                volume_db: -4
+                loop: true
+                trigger: player.health < 50 or enemy.state == hunt
+              breathing_scared:
+                file: assets/audio/breathing_scared.wav
+                bus: music
+                volume_db: -8
+                trigger: enemy.state == hunt
+              amyr_servo_creak:
+                file: assets/audio/amyr_servo_creak.wav
+                bus: enemy
+                volume_db: -12
+                spatial: true
+                max_distance: 20
+              amyr_growl:
+                file: assets/audio/amyr_growl.wav
+                bus: enemy
+                volume_db: -4
+                spatial: true
+                loop: true
+                max_distance: 30
+              amyr_leg_step:
+                file: assets/audio/amyr_leg_step.wav
+                bus: enemy
+                volume_db: -6
+                spatial: true
+                max_distance: 25
+              amyr_attack_screech:
+                file: assets/audio/amyr_attack_screech.wav
+                bus: enemy
+                volume_db: 0
+                spatial: true
+                max_distance: 40
+              jumpscare_stinger:
+                file: assets/audio/jumpscare_stinger.wav
+                bus: master
+                volume_db: 2
+              distant_clang:
+                file: assets/audio/distant_clang.wav
+                bus: enemy
+                volume_db: -10
+                spatial: true
+                max_distance: 35
+          scenario:
+            id: test_hallway
+            name: Pasillo de prueba
+            size_meters:
+            - 40
+            - 30
+            ceiling_height: 3.0
+            floor_material: tiles_dirty
+            wall_material: wallpaper_old
+            lights:
+            - id: ceiling_1
+              pos:
+              - 0
+              - 2.8
+              - -4
+              color: '#ffe2a8'
+              energy: 1.2
+              flicker: true
+            - id: ceiling_2
+              pos:
+              - 0
+              - 2.8
+              - 4
+              color: '#ffe2a8'
+              energy: 0.4
+              flicker: true
+              flicker_freq: 9
+            - id: exit_sign
+              pos:
+              - -14
+              - 2.6
+              - 0
+              color: '#ff2a2a'
+              energy: 0.8
+              flicker: false
+            spawn:
+              player:
+                pos:
+                - 0
+                - 1.65
+                - 10
+                facing_deg: 180
+              amyr:
+                pos:
+                - 0
+                - 0
+                - -12
+                facing_deg: 0
+                start_state: idle
+            waypoints:
+            - - -8
+              - 0
+              - -10
+            - - 8
+              - 0
+              - -10
+            - - 8
+              - 0
+              - 0
+            - - -8
+              - 0
+              - 0
+            - - -8
+              - 0
+              - 8
+            - - 8
+              - 0
+              - 8
+            walls:
+            - from:
+              - -10
+              - 0
+              - -15
+              to:
+              - 10
+              - 0
+              - -15
+            - from:
+              - -10
+              - 0
+              - 15
+              to:
+              - 10
+              - 0
+              - 15
+            - from:
+              - -10
+              - 0
+              - -15
+              to:
+              - -10
+              - 0
+              - 15
+            - from:
+              - 10
+              - 0
+              - -15
+              to:
+              - 10
+              - 0
+              - 15
+            - from:
+              - -3
+              - 0
+              - -2
+              to:
+              - -3
+              - 0
+              - 4
+              thickness: 0.2
+            - from:
+              - 3
+              - 0
+              - -6
+              to:
+              - 3
+              - 0
+              - -1
+              thickness: 0.2
+            props:
+            - type: arcade_cabinet
+              pos:
+              - -9
+              - 0
+              - -13
+              rot_deg: 90
+            - type: metal_pipe
+              pos:
+              - 9.2
+              - 0
+              - -14
+            - type: crate
+              pos:
+              - -4
+              - 0
+              - 10
+            - type: tv_static
+              pos:
+              - 0
+              - 0.6
+              - -14.5
+            exit:
+              pos:
+              - -14
+              - 1.0
+              - 0
+              win_message: Escapaste.
+            checkpoints:
+            - pos:
+              - 0
+              - 0
+              - 10
+              id: start
+            - pos:
+              - 0
+              - 0
+              - -4
+              id: middle
+            debug:
+              show_ik_targets: true
+              show_vision_cone: true
+              show_waypoints: true
+              god_mode: false
+          files:
+            project.godot: |
+              ; Godot 4.3 - Amyr: Pasillo Oscuro
+              config_version=5
+
+              [application]
+              config/name="Amyr - Pasillo Oscuro"
+              config/version="0.1.0"
+              run/main_scene="res://scenes/main.tscn"
+              config/features=PackedStringArray("4.3", "Forward Plus")
+
+              [display]
+              window/size/viewport_width=1920
+              window/size/viewport_height=1080
+              window/handheld/orientation=0
+              window/stretch/mode="canvas_items"
+
+              [rendering]
+              renderer/rendering_method="forward_plus"
+              anti_aliasing/quality/msaa_3d=1
+              environment/ssao/enabled=true
+              lights_and_shadows/directional_shadow/size=2048
+            scenes/main.tscn: |
+              [gd_scene load_steps=2 format=3]
+
+              [ext_resource type="Script" path="res://scripts/main.gd" id="1"]
+
+              [node name="Main" type="Node3D"]
+              script = ExtResource("1")
+            export_presets.cfg: |
+              [preset.0]
+
+              name="Android"
+              platform="Android"
+              runnable=true
+              dedicated_server=false
+              custom_features=""
+              export_filter="all_resources"
+              include_filter=""
+              exclude_filter=""
+              export_path="build/AmyrPasillo.apk"
+              encryption_include_filters=""
+              encryption_exclude_filters=""
+              encrypt_pck=false
+              encrypt_directory=false
+
+              [preset.0.options]
+
+              custom_template/debug=""
+              custom_template/release=""
+              gradle_build/use_gradle_build=false
+              gradle_build/export_format=0
+              architectures/armeabi-v7a=false
+              architectures/arm64-v8a=true
+              architectures/x86=false
+              architectures/x86_64=false
+              version/code=1
+              version/name="0.1.0"
+              package/unique_name="com.tuestudio.amyrhorror"
+              package/name="Amyr - Pasillo Oscuro"
+              package/signed=true
+              screen/orientation=0
+              screen/immersive_mode=true
+              permissions/vibrate=true
+              permissions/internet=false
+          scripts:
+            scripts/main.gd: "extends Node3D\n## Arranca el juego: carga los JSON, construye el escenario y gestiona el fin de partida.\n\nconst DATA_GAME := \"res://data/game.json\"\nconst DATA_SCENE := \"res://data/test_scenario.json\"\
+              \n\nvar game_cfg: Dictionary\nvar scene_cfg: Dictionary\nvar player: CharacterBody3D\nvar amyr: Node3D\nvar audio: Node\nvar lights_flicker: Array = []\nvar game_over_layer: ColorRect\nvar is_over :=\
+              \ false\n\nfunc _ready() -> void:\n\tDisplayServer.screen_set_orientation(DisplayServer.SCREEN_LANDSCAPE)\n\tgame_cfg = _load_json(DATA_GAME)\n\tscene_cfg = _load_json(DATA_SCENE)\n\t_setup_environment()\n\
+              \t_build_scenario(scene_cfg[\"scenario\"])\n\taudio = preload(\"res://scripts/audio_manager.gd\").new()\n\tadd_child(audio)\n\tplayer = preload(\"res://scripts/player.gd\").new()\n\tplayer.setup(game_cfg,\
+              \ scene_cfg[\"scenario\"][\"spawn\"][\"player\"], audio)\n\tadd_child(player)\n\tamyr = preload(\"res://scripts/amyr.gd\").new()\n\tamyr.setup(scene_cfg[\"scenario\"], audio, player, self)\n\tadd_child(amyr)\n\
+              \t_setup_game_over_overlay()\n\taudio.play_loop(\"ambience_hallway_loop\")\n\nfunc _load_json(path: String) -> Dictionary:\n\tvar f := FileAccess.open(path, FileAccess.READ)\n\treturn JSON.parse_string(f.get_as_text())\n\
+              \nfunc _setup_environment() -> void:\n\tvar g: Dictionary = game_cfg[\"graphics\"]\n\tvar env := Environment.new()\n\tenv.background_mode = Environment.BG_COLOR\n\tenv.background_color = Color.BLACK\n\
+              \tenv.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR\n\tenv.ambient_light_color = Color(0.05, 0.06, 0.06)\n\tenv.tonemap_mode = Environment.TONE_MAPPER_FILMIC\n\tenv.tonemap_exposure = float(g[\"\
+              exposure\"])\n\tenv.ssao_enabled = bool(g[\"ssao\"])\n\tenv.glow_enabled = bool(g[\"glow\"])\n\tenv.fog_enabled = bool(g[\"fog\"][\"enabled\"])\n\tenv.fog_density = float(g[\"fog\"][\"density\"])\n\t\
+              env.fog_light_color = Color(g[\"fog\"][\"color\"])\n\tvar we := WorldEnvironment.new()\n\twe.environment = env\n\tadd_child(we)\n\nfunc _build_scenario(s: Dictionary) -> void:\n\tvar size: Array = s[\"\
+              size_meters\"]\n\tvar h: float = float(s[\"ceiling_height\"])\n\t# Suelo y techo\n\t_add_box(Vector3(0, -0.05, 0), Vector3(size[0], 0.1, size[1]), Color(0.18, 0.17, 0.15), true)\n\t_add_box(Vector3(0,\
+              \ h + 0.05, 0), Vector3(size[0], 0.1, size[1]), Color(0.12, 0.12, 0.12), true)\n\t# Muros perimetrales y divisiones\n\tfor w in s[\"walls\"]:\n\t\t_add_wall(w)\n\t# Luces\n\tfor l in s[\"lights\"]:\n\
+              \t\tvar light := OmniLight3D.new()\n\t\tlight.position = Vector3(l[\"pos\"][0], l[\"pos\"][1], l[\"pos\"][2])\n\t\tlight.light_color = Color(l[\"color\"])\n\t\tlight.light_energy = float(l[\"energy\"\
+              ])\n\t\tlight.omni_range = 9.0\n\t\tlight.shadow_enabled = true\n\t\tadd_child(light)\n\t\tif l.get(\"flicker\", false):\n\t\t\tlights_flicker.append({\"node\": light, \"base\": float(l[\"energy\"]),\
+              \ \"freq\": float(l.get(\"flicker_freq\", 3.0))})\n\t# Puntos de salida y utilería simple\n\tfor p in s[\"props\"]:\n\t\t_add_box(Vector3(p[\"pos\"][0], 0.5, p[\"pos\"][2]), Vector3(0.9, 1.0, 0.6),\
+              \ Color(0.25, 0.22, 0.2), true)\n\nfunc _add_wall(w: Dictionary) -> void:\n\tvar a: Array = w[\"from\"]; var b: Array = w[\"to\"]\n\tvar t: float = float(w.get(\"thickness\", 0.3))\n\tvar start := Vector3(a[0],\
+              \ 0, a[2]); var end := Vector3(b[0], 0, b[2])\n\tvar length := start.distance_to(end)\n\tvar mid := (start + end) / 2.0\n\tvar box := Vector3(length if abs(end.x - start.x) > 0.01 else t, 3.0, length\
+              \ if abs(end.z - start.z) > 0.01 else t)\n\t_add_box(Vector3(mid.x, 1.5, mid.z), box, Color(0.42, 0.40, 0.34), true)\n\nfunc _add_box(pos: Vector3, size: Vector3, color: Color, collide: bool) -> void:\n\
+              \tvar mi := MeshInstance3D.new()\n\tvar mesh := BoxMesh.new()\n\tmesh.size = size\n\tmi.mesh = mesh\n\tvar mat := StandardMaterial3D.new()\n\tmat.albedo_color = color\n\tmat.roughness = 0.9\n\tmi.material_override\
+              \ = mat\n\tmi.position = pos\n\tif collide:\n\t\tvar body := StaticBody3D.new()\n\t\tvar cs := CollisionShape3D.new()\n\t\tvar shape := BoxShape3D.new()\n\t\tshape.size = size\n\t\tcs.shape = shape\n\
+              \t\tbody.add_child(cs)\n\t\tbody.add_child(mi)\n\t\tadd_child(body)\n\telse:\n\t\tadd_child(mi)\n\nfunc _process(delta: float) -> void:\n\tvar t := Time.get_ticks_msec() / 1000.0\n\tfor f in lights_flicker:\n\
+              \t\tvar n: float = sin(t * f[\"freq\"]) * sin(t * f[\"freq\"] * 0.37 + 1.3)\n\t\tf[\"node\"].light_energy = f[\"base\"] * (0.6 + 0.4 * (1.0 if n > -0.3 else 0.1))\n\nfunc trigger_game_over() -> void:\n\
+              \tif is_over:\n\t\treturn\n\tis_over = true\n\taudio.play_once(\"jumpscare_stinger\")\n\tgame_over_layer.visible = true\n\tvar tween := create_tween()\n\ttween.tween_property(game_over_layer, \"modulate:a\"\
+              , 1.0, float(game_cfg[\"game_over\"][\"screen_fade_seconds\"]))\n\ttween.tween_interval(float(game_cfg[\"game_over\"][\"retry_delay_seconds\"]))\n\ttween.tween_callback(func(): get_tree().reload_current_scene())\n\
+              \nfunc _setup_game_over_overlay() -> void:\n\tvar layer := CanvasLayer.new()\n\tgame_over_layer = ColorRect.new()\n\tgame_over_layer.color = Color.BLACK\n\tgame_over_layer.set_anchors_preset(Control.PRESET_FULL_RECT)\n\
+              \tgame_over_layer.modulate.a = 0.0\n\tgame_over_layer.visible = false\n\tvar label := Label.new()\n\tlabel.text = \"AMYR TE ENCONTRÓ\"\n\tlabel.set_anchors_preset(Control.PRESET_CENTER)\n\tlabel.add_theme_font_size_override(\"\
+              font_size\", 48)\n\tgame_over_layer.add_child(label)\n\tlayer.add_child(game_over_layer)\n\tadd_child(layer)\n"
+            scripts/player.gd: "extends CharacterBody3D\n## Jugador en primera persona con linterna. Controles: joystick táctil (izquierda),\n## arrastrar a la derecha para mirar. En PC: WASD, ratón, Shift correr,\
+              \ F linterna.\n\nvar cfg: Dictionary\nvar audio: Node\nvar camera: Camera3D\nvar flashlight: SpotLight3D\nvar battery: float\nvar stamina: float\nvar health: float\nvar flashlight_on := true\nvar yaw\
+              \ := 0.0\nvar pitch := 0.0\nvar move_touch := -1\nvar look_touch := -1\nvar move_vec := Vector2.ZERO\nvar bob_t := 0.0\nvar step_timer := 0.0\nvar bob_amount := 0.035\nvar sound_radius := 0.0   # cuánto\
+              \ ruido haces (Amyr te oye si corres cerca)\n\nfunc setup(game_cfg: Dictionary, spawn: Dictionary, audio_mgr: Node) -> void:\n\tcfg = game_cfg[\"player\"]\n\taudio = audio_mgr\n\tposition = Vector3(spawn[\"\
+              pos\"][0], 0.0, spawn[\"pos\"][2])\n\tyaw = deg_to_rad(float(spawn[\"facing_deg\"]))\n\tbattery = float(cfg[\"flashlight\"][\"battery_seconds\"])\n\tstamina = float(cfg[\"stamina\"][\"max\"])\n\thealth\
+              \ = float(cfg[\"health\"][\"max\"])\n\tvar cam_cfg: Dictionary = game_cfg[\"camera\"]\n\tvar shape := CapsuleShape3D.new()\n\tshape.radius = 0.35; shape.height = 1.8\n\tvar cs := CollisionShape3D.new();\
+              \ cs.shape = shape; cs.position.y = 0.9\n\tadd_child(cs)\n\tbob_amount = float(cam_cfg[\"bob_amount\"])\n\tcamera = Camera3D.new()\n\tcamera.position.y = float(cfg[\"eye_height\"])\n\tcamera.near =\
+              \ float(cam_cfg[\"near\"]); camera.far = float(cam_cfg[\"far\"])\n\tcamera.fov = float(cam_cfg[\"fov\"])\n\tadd_child(camera)\n\tcamera.make_current()\n\tflashlight = SpotLight3D.new()\n\tvar fl: Dictionary\
+              \ = cfg[\"flashlight\"]\n\tflashlight.light_energy = float(fl[\"intensity\"])\n\tflashlight.spot_range = float(fl[\"range\"])\n\tflashlight.spot_angle = float(fl[\"angle_deg\"])\n\tflashlight.light_color\
+              \ = Color(fl[\"color\"])\n\tflashlight.shadow_enabled = true\n\tcamera.add_child(flashlight)\n\taudio.play_loop(fl[\"sounds\"][\"hum\"])\n\nfunc _input(event: InputEvent) -> void:\n\t# Pantalla táctil:\
+              \ mitad izquierda = mover, mitad derecha = mirar\n\tif event is InputEventScreenTouch:\n\t\tvar half := get_viewport().get_visible_rect().size.x / 2.0\n\t\tif event.pressed:\n\t\t\tif event.position.x\
+              \ < half and move_touch == -1:\n\t\t\t\tmove_touch = event.index\n\t\t\telif event.position.x >= half and look_touch == -1:\n\t\t\t\tlook_touch = event.index\n\t\t\telse:\n\t\t\t\t_toggle_flashlight()\n\
+              \t\telse:\n\t\t\tif event.index == move_touch: move_touch = -1; move_vec = Vector2.ZERO\n\t\t\tif event.index == look_touch: look_touch = -1\n\telif event is InputEventScreenDrag:\n\t\tif event.index\
+              \ == move_touch:\n\t\t\tmove_vec = (event.position - _touch_origin_center()).normalized()\n\t\telif event.index == look_touch:\n\t\t\t_apply_look(event.relative)\n\telif event is InputEventMouseMotion\
+              \ and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:\n\t\t_apply_look(event.relative)\n\telif event is InputEventKey and event.pressed and event.keycode == KEY_F:\n\t\t_toggle_flashlight()\n\telif event\
+              \ is InputEventMouseButton and event.pressed:\n\t\tInput.mouse_mode = Input.MOUSE_MODE_CAPTURED\n\nfunc _touch_origin_center() -> Vector2:\n\tvar s := get_viewport().get_visible_rect().size\n\treturn\
+              \ Vector2(s.x * 0.2, s.y * 0.75)\n\nfunc _apply_look(rel: Vector2) -> void:\n\tvar sens := float(cfg[\"look_sensitivity\"]) * 0.02\n\tyaw -= rel.x * sens\n\tpitch = clamp(pitch - rel.y * sens, deg_to_rad(-80),\
+              \ deg_to_rad(80))\n\nfunc _toggle_flashlight() -> void:\n\tif battery <= 0.0:\n\t\treturn\n\tflashlight_on = not flashlight_on\n\tflashlight.visible = flashlight_on\n\taudio.play_once(cfg[\"flashlight\"\
+              ][\"sounds\"][\"on\"])\n\nfunc _physics_process(delta: float) -> void:\n\trotation.y = yaw\n\tcamera.rotation.x = pitch\n\n\tvar input := Vector2.ZERO\n\tif move_touch != -1:\n\t\tinput = move_vec\n\
+              \telse:\n\t\tinput = Input.get_vector(\"ui_left\", \"ui_right\", \"ui_up\", \"ui_down\")\n\tvar running := Input.is_key_pressed(KEY_SHIFT) and stamina > 0.0 and input.length() > 0.1\n\tvar speed :=\
+              \ float(cfg[\"run_speed\"]) if running else float(cfg[\"walk_speed\"])\n\tvar dir := (transform.basis * Vector3(input.x, 0, input.y)).normalized()\n\tvelocity.x = dir.x * speed\n\tvelocity.z = dir.z\
+              \ * speed\n\tvelocity.y -= 9.8 * delta\n\tmove_and_slide()\n\n\tstamina = clamp(stamina + (-float(cfg[\"stamina\"][\"drain_per_second\"]) if running else float(cfg[\"stamina\"][\"regen_per_second\"\
+              ])) * delta, 0, float(cfg[\"stamina\"][\"max\"]))\n\tsound_radius = 5.0 if running else (1.0 if input.length() > 0.1 else 0.0)\n\n\t# Batería de la linterna\n\tif flashlight_on:\n\t\tbattery -= delta\n\
+              \t\tif battery <= 0.0:\n\t\t\tbattery = 0.0\n\t\t\tflashlight_on = false\n\t\t\tflashlight.visible = false\n\tvar low := battery < 15.0 and flashlight_on\n\tflashlight.light_energy = float(cfg[\"flashlight\"\
+              ][\"intensity\"]) * (randf_range(0.3, 1.0) if low else 1.0)\n\n\t# Balanceo de cabeza y pasos\n\tvar moving := input.length() > 0.1 and is_on_floor()\n\tif moving:\n\t\tbob_t += delta * (9.0 if running\
+              \ else 6.5)\n\t\tstep_timer -= delta\n\t\tif step_timer <= 0.0:\n\t\t\taudio.play_once(\"footstep_%d\" % (randi() % 3 + 1))\n\t\t\tstep_timer = 0.42 if not running else 0.28\n\tcamera.position.y = float(cfg[\"\
+              eye_height\"]) + (sin(bob_t) * bob_amount if moving else 0.0)\n"
+            scripts/amyr.gd: "extends Node3D\n## Amyr: máquina de estados (config/amyr.yaml) + IK de piernas y brazos sobre el FBX.\n\nvar cfg: Dictionary\nvar scen: Dictionary\nvar audio: Node\nvar player: CharacterBody3D\n\
+              var world: Node3D\nvar model: Node3D\nvar skeleton: Skeleton3D\nvar state := \"idle\"\nvar state_t := 0.0\nvar waypoints: Array = []\nvar wp_index := 0\nvar lost_sight_t := 0.0\nvar freeze_t := 0.0\n\
+              var step_timer := 0.0\nvar legs := {}   # {\"left\": {target, planted, swing_t, from, to}, ...}\nvar growl: AudioStreamPlayer3D\nvar arm_targets := {}\n\nconst GRAVITY := 9.8\n\nfunc setup(scenario:\
+              \ Dictionary, audio_mgr: Node, p: CharacterBody3D, world_node: Node3D) -> void:\n\tscen = scenario\n\taudio = audio_mgr\n\tplayer = p\n\tworld = world_node\n\tcfg = _load_yaml_json(\"res://data/amyr.json\"\
+              )\n\twaypoints = scenario[\"waypoints\"]\n\tvar sp: Dictionary = scenario[\"spawn\"][\"amyr\"]\n\tposition = Vector3(sp[\"pos\"][0], 0, sp[\"pos\"][2])\n\trotation.y = deg_to_rad(float(sp[\"facing_deg\"\
+              ]))\n\t_load_model()\n\t_setup_ik()\n\nfunc _load_yaml_json(path: String) -> Dictionary:\n\tvar f := FileAccess.open(path, FileAccess.READ)\n\treturn JSON.parse_string(f.get_as_text())\n\nfunc _load_model()\
+              \ -> void:\n\tvar scene := load(\"res://assets/models/Amyr.fbx\") as PackedScene\n\tmodel = scene.instantiate()\n\tmodel.scale = Vector3.ONE * float(cfg[\"model\"][\"scale\"])\n\tadd_child(model)\n\t\
+              skeleton = _find_skeleton(model)\n\t# Piernas: un nodo objetivo por pie\n\tfor side in [\"left\", \"right\"]:\n\t\tvar target := Node3D.new()\n\t\ttarget.name = \"FootTarget_\" + side\n\t\tworld.add_child(target)\n\
+              \t\tlegs[side] = {\"target\": target, \"planted\": Vector3.ZERO, \"swing_t\": 1.0, \"from\": Vector3.ZERO, \"to\": Vector3.ZERO}\n\t\tlegs[side][\"planted\"] = _foot_rest(side)\n\t\ttarget.global_position\
+              \ = legs[side][\"planted\"]\n\nfunc _foot_rest(side: String) -> Vector3:\n\tvar lateral := global_transform.basis.x\n\tvar off := -0.12 if side == \"left\" else 0.12\n\treturn global_position + lateral\
+              \ * off\n\nfunc _find_skeleton(n: Node) -> Skeleton3D:\n\tif n is Skeleton3D:\n\t\treturn n\n\tfor c in n.get_children():\n\t\tvar s := _find_skeleton(c)\n\t\tif s: return s\n\treturn null\n\nfunc _setup_ik()\
+              \ -> void:\n\tif skeleton == null:\n\t\tpush_warning(\"Amyr.fbx no tiene esqueleto; IK desactivado\")\n\t\treturn\n\tvar ik := TwoBoneIK3D.new()\n\t# 2 piernas + 2 brazos = 4 cadenas IK\n\tvar chains\
+              \ := []\n\tfor side in [\"left\", \"right\"]:\n\t\tchains.append({\"chain\": cfg[\"skeleton\"][\"legs\"][side], \"target\": legs[side][\"target\"]})\n\tfor side in [\"left\", \"right\"]:\n\t\tarm_targets[side]\
+              \ = Node3D.new()\n\t\tarm_targets[side].name = \"HandTarget_\" + side\n\t\tworld.add_child(arm_targets[side])\n\t\tarm_targets[side].global_position = global_position + Vector3(0, 1.3, 0)\n\t\tchains.append({\"\
+              chain\": cfg[\"skeleton\"][\"arms\"][side], \"target\": arm_targets[side]})\n\tik.setting_count = chains.size()\n\tfor i in chains.size():\n\t\tvar c: Dictionary = chains[i][\"chain\"]\n\t\tik.set_root_bone_name(i,\
+              \ c[\"root\"])\n\t\tik.set_middle_bone_name(i, c[\"middle\"])\n\t\tik.set_end_bone_name(i, c[\"end\"])\n\t\tik.set_target_node(i, ik.get_path_to(chains[i][\"target\"]))\n\tskeleton.add_child(ik)\n\n\
+              func _physics_process(delta: float) -> void:\n\tstate_t += delta\n\tvar to_player := player.global_position - global_position\n\tto_player.y = 0\n\tvar dist := to_player.length()\n\tvar sees := _can_see_player(to_player)\n\
+              \tif sees:\n\t\tlost_sight_t = 0.0\n\t\tif state in [\"idle\", \"wander\", \"search\"]:\n\t\t\t_set_state(\"hunt\")\n\telse:\n\t\tlost_sight_t += delta\n\n\tmatch state:\n\t\t\"idle\":\n\t\t\tif state_t\
+              \ > randf_range(8, 15): _set_state(\"wander\")\n\t\t\"wander\":\n\t\t\t_walk_to_waypoint(delta, 1.2)\n\t\t\"hunt\":\n\t\t\t_face(to_player, delta)\n\t\t\t_move_toward(to_player.normalized(), 3.4, delta)\n\
+              \t\t\tif dist < 1.6: _set_state(\"attack\")\n\t\t\telif lost_sight_t > 6.0: _set_state(\"search\")\n\t\t\"search\":\n\t\t\trotation.y += delta * 0.8\n\t\t\tif sees: _set_state(\"hunt\")\n\t\t\telif\
+              \ state_t > randf_range(10, 18): _set_state(\"wander\")\n\t\t\"attack\":\n\t\t\tfreeze_t += delta\n\t\t\t_face(to_player, delta)\n\t\t\tif freeze_t > float(cfg[\"states\"][\"attack\"][\"freeze_seconds\"\
+              ]):\n\t\t\t\t_arms_reach(to_player)\n\t\t\t\tif dist < 0.9:\n\t\t\t\t\tworld.trigger_game_over()\n\t\t\t\t\tset_physics_process(false)\n\t\t\t\t\treturn\n\n\t_update_legs(delta)\n\nfunc _set_state(s:\
+              \ String) -> void:\n\tstate = s\n\tstate_t = 0.0\n\tfreeze_t = 0.0\n\tif s == \"attack\":\n\t\taudio.play_at(\"amyr_attack_screech\", global_position, world)\n\tif s == \"hunt\":\n\t\tgrowl = AudioStreamPlayer3D.new()\n\
+              \t\tgrowl.stream = audio.streams[\"amyr_growl\"]\n\t\tgrowl.max_distance = 30\n\t\tadd_child(growl)\n\t\tgrowl.play()\n\telif growl and state != \"hunt\":\n\t\tgrowl.queue_free()\n\t\tgrowl = null\n\
+              \nfunc _can_see_player(to_player: Vector3) -> bool:\n\tvar v: Dictionary = cfg[\"vision\"]\n\tvar d := to_player.length()\n\tif d > float(v[\"range\"]): return false\n\tvar fwd := -global_transform.basis.z\n\
+              \tvar ang := rad_to_deg(acos(clamp(fwd.dot(to_player.normalized()), -1.0, 1.0)))\n\tvar fov_ok := ang < float(v[\"fov_deg\"]) / 2.0\n\tvar in_flashlight := player.flashlight_on and d < float(v[\"flashlight_detect_range\"\
+              ]) and ang < 20.0\n\tvar heard := d < float(v[\"hearing_radius\"]) and player.sound_radius > 0.0\n\treturn (fov_ok and in_flashlight) or heard\n\nfunc _walk_to_waypoint(delta: float, speed: float) ->\
+              \ void:\n\tif waypoints.is_empty(): return\n\tvar wp := Vector3(waypoints[wp_index][0], 0, waypoints[wp_index][2])\n\tvar dir := wp - global_position\n\tdir.y = 0\n\tif dir.length() < 0.5:\n\t\twp_index\
+              \ = (wp_index + 1) % waypoints.size()\n\t\t_set_state(\"idle\")\n\t\treturn\n\t_face(dir, delta)\n\t_move_toward(dir.normalized(), speed, delta)\n\nfunc _face(dir: Vector3, delta: float) -> void:\n\t\
+              var target_yaw := atan2(-dir.x, -dir.z)\n\trotation.y = lerp_angle(rotation.y, target_yaw, clamp(delta * 6.0, 0, 1))\n\nfunc _move_toward(dir: Vector3, speed: float, delta: float) -> void:\n\tglobal_position\
+              \ += dir * speed * delta\n\tglobal_position.y = 0\n\n# --- IK de piernas: paso alternado y pie plantado ---\nfunc _update_legs(delta: float) -> void:\n\tvar ik_cfg: Dictionary = cfg[\"ik_legs\"]\n\t\
+              var moving := state in [\"wander\", \"hunt\", \"search\"]\n\tvar stride: float = float(ik_cfg[\"step_length\"])\n\tvar dur: float = float(ik_cfg[\"run_step_duration\" if state == \"hunt\" else \"step_duration\"\
+              ])\n\tvar forward := -global_transform.basis.z\n\tvar lateral := global_transform.basis.x\n\tvar side_offset := {\"left\": -0.12, \"right\": 0.12}\n\tfor side in legs:\n\t\tvar leg: Dictionary = legs[side]\n\
+              \t\tvar rest := global_position + forward * 0.0 + lateral * side_offset[side]\n\t\tif leg[\"swing_t\"] >= 1.0:\n\t\t\t# Pie plantado: si se alejó, empieza un paso\n\t\t\tvar desired := rest + forward\
+              \ * stride * 0.5\n\t\t\tif moving and leg[\"planted\"].distance_to(desired) > stride * 0.5:\n\t\t\t\tleg[\"from\"] = leg[\"planted\"]\n\t\t\t\tleg[\"to\"] = desired\n\t\t\t\tleg[\"swing_t\"] = 0.0\n\
+              \t\t\tleg[\"target\"].global_position = leg[\"planted\"]\n\t\telse:\n\t\t\tleg[\"swing_t\"] = min(1.0, leg[\"swing_t\"] + delta / dur)\n\t\t\tvar t: float = leg[\"swing_t\"]\n\t\t\tvar p: Vector3 =\
+              \ leg[\"from\"].lerp(leg[\"to\"], t)\n\t\t\tp.y = float(ik_cfg[\"step_height\"]) * sin(t * PI)\n\t\t\tleg[\"target\"].global_position = p\n\t\t\tif t >= 1.0:\n\t\t\t\tleg[\"planted\"] = leg[\"to\"]\n\
+              \t\t\t\taudio.play_at(\"amyr_leg_step\", leg[\"to\"], world)\n\t\tif not moving:\n\t\t\tleg[\"target\"].global_position = leg[\"planted\"]\n\n# --- IK de brazos: extensión hacia el jugador al atacar\
+              \ ---\nfunc _arms_reach(to_player: Vector3) -> void:\n\tvar reach := float(cfg[\"ik_arms\"][\"attack_reach\"])\n\tvar dir := to_player.normalized()\n\tvar chest := global_position + Vector3(0, 1.3,\
+              \ 0)\n\tfor side in arm_targets:\n\t\tvar offset := 0.25 if side == \"left\" else -0.25\n\t\tvar goal := chest + dir * reach + global_transform.basis.x * offset\n\t\tarm_targets[side].global_position\
+              \ = arm_targets[side].global_position.lerp(goal, 0.25)\n"
+            scripts/audio_manager.gd: "extends Node\n## Carga config/audio.yaml (vía data/audio.json) y reproduce cada evento de sonido.\n\nvar defs: Dictionary = {}\nvar streams: Dictionary = {}\nvar players_2d:\
+              \ Dictionary = {}\n\nfunc _ready() -> void:\n\tvar f := FileAccess.open(\"res://data/audio.json\", FileAccess.READ)\n\tvar cfg: Dictionary = JSON.parse_string(f.get_as_text())\n\tdefs = cfg[\"sounds\"\
+              ]\n\tfor id in defs:\n\t\tvar stream := load(\"res://\" + defs[id][\"file\"]) as AudioStreamWAV\n\t\tif stream == null:\n\t\t\tpush_warning(\"No se pudo cargar sonido: \" + id)\n\t\t\tcontinue\n\t\t\
+              if defs[id].get(\"loop\", false):\n\t\t\tstream.loop_mode = AudioStreamWAV.LOOP_FORWARD\n\t\t\tstream.loop_end = stream.data.size() / 2\n\t\tstreams[id] = stream\n\nfunc _make_player(id: String) ->\
+              \ AudioStreamPlayer:\n\tvar p := AudioStreamPlayer.new()\n\tp.stream = streams[id]\n\tp.volume_db = float(defs[id].get(\"volume_db\", 0))\n\tadd_child(p)\n\treturn p\n\nfunc play_once(id: String) ->\
+              \ void:\n\tif not streams.has(id):\n\t\treturn\n\tvar p := _make_player(id)\n\tp.finished.connect(p.queue_free)\n\tp.play()\n\nfunc play_loop(id: String) -> void:\n\tif not streams.has(id) or players_2d.has(id):\n\
+              \t\treturn\n\tvar p := _make_player(id)\n\tplayers_2d[id] = p\n\tp.play()\n\nfunc stop(id: String) -> void:\n\tif players_2d.has(id):\n\t\tplayers_2d[id].queue_free()\n\t\tplayers_2d.erase(id)\n\n##\
+              \ Sonido en posición 3D (pasos, gruñidos, chirridos de Amyr)\nfunc play_at(id: String, pos: Vector3, parent: Node3D) -> void:\n\tif not streams.has(id):\n\t\treturn\n\tvar p := AudioStreamPlayer3D.new()\n\
+              \tp.stream = streams[id]\n\tp.volume_db = float(defs[id].get(\"volume_db\", 0))\n\tp.max_distance = float(defs[id].get(\"max_distance\", 30))\n\tp.unit_size = 4.0\n\tp.pitch_scale = 1.0 + randf_range(-0.05,\
+              \ 0.05)\n\tparent.add_child(p)\n\tp.global_position = pos\n\tp.finished.connect(p.queue_free)\n\tp.play()\n"
+          AMYR_GAME_YAML_EOF
+
+          mkdir -p "$(dirname tools/build_project.py)"
+          cat > tools/build_project.py << 'AMYR_BUILD_PY_EOF'
+          """Genera el proyecto Godot a partir de game.yaml (el único archivo fuente).
+          - Escribe los scripts .gd, project.godot, escena y export_presets.cfg.
+          - Escribe data/*.json con la configuración que leen los scripts.
+          Uso: python tools/build_project.py"""
+          import json, os, yaml
+
+          ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+
+          # Qué claves de game.yaml van a cada JSON que leen los scripts
+          SPLIT = {
+              "game.json": ["game", "graphics", "player", "camera", "game_over"],
+              "amyr.json": ["model", "skeleton", "ik_legs", "ik_arms", "states", "vision"],
+              "audio.json": ["bus", "sounds"],
+              "test_scenario.json": ["scenario"],
+          }
+
+          with open(os.path.join(ROOT, "game.yaml"), encoding="utf-8") as f:
+              doc = yaml.safe_load(f)
+
+          os.makedirs(os.path.join(ROOT, "data"), exist_ok=True)
+          for out, keys in SPLIT.items():
+              data = {k: doc[k] for k in keys if k in doc}
+              with open(os.path.join(ROOT, "data", out), "w", encoding="utf-8") as f:
+                  json.dump(data, f, ensure_ascii=False, indent=2)
+              print("data/" + out)
+
+          for group in ("files", "scripts"):
+              for rel, content in doc[group].items():
+                  path = os.path.join(ROOT, rel)
+                  os.makedirs(os.path.dirname(path), exist_ok=True)
+                  with open(path, "w", encoding="utf-8", newline="\n") as f:
+                      f.write(content)
+                  print(rel)
+          AMYR_BUILD_PY_EOF
+
+          mkdir -p "$(dirname tools/synth_audio.py)"
+          cat > tools/synth_audio.py << 'AMYR_SYNTH_PY_EOF'
+          """Genera los efectos de sonido del juego (WAV mono 22050 Hz, 16 bits).
+          Todo es sintetizado: no requiere archivos externos ni licencias."""
+          import wave, os
+          import numpy as np
+
+          SR = 22050
+          OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "audio")
+          rng = np.random.default_rng(7)
+
+          def t(sec): return np.linspace(0, sec, int(SR * sec), endpoint=False)
+          def lowpass(x, k=12): return np.convolve(x, np.ones(k) / k, mode="same")
+          def env(n, attack=0.01, decay=5.0):
+              tt = np.linspace(0, n / SR, n, endpoint=False)
+              return np.clip(tt / attack, 0, 1) * np.exp(-decay * tt)
+          def fm(freq, idx, sec, ratio=2.0):
+              tt = t(sec)
+              return np.sin(2 * np.pi * freq * tt + idx * np.sin(2 * np.pi * freq * ratio * tt))
+          def norm(x, peak=0.9):
+              return x / (np.max(np.abs(x)) or 1.0) * peak
+          def loop_fade(x, ms=30):
+              n = int(SR * ms / 1000); w = np.linspace(0, 1, n)
+              x[:n] *= w; x[-n:] *= w[::-1]
+              return x
+          def save(name, x):
+              x = np.clip(x, -1, 1)
+              with wave.open(os.path.join(OUT, name + ".wav"), "wb") as f:
+                  f.setnchannels(1); f.setsampwidth(2); f.setframerate(SR)
+                  f.writeframes((x * 32767).astype(np.int16).tobytes())
+              print(f"{name}.wav  {len(x)/SR:.2f}s")
+
+          os.makedirs(OUT, exist_ok=True)
+
+          for i in range(3):
+              n = int(SR * 0.22)
+              s = lowpass(rng.normal(0, 1, n), 18) * env(n, 0.005, 14 + i * 2)
+              s += 0.25 * np.sin(2 * np.pi * (70 + 15 * i) * t(0.22)) * env(n, 0.003, 18)
+              save(f"footstep_{i+1}", norm(s, 0.7))
+
+          n = int(SR * 0.06)
+          save("flashlight_click", norm(lowpass(rng.normal(0, 1, n), 3) * env(n, 0.001, 60), 0.6))
+
+          d = t(2.0)
+          hum = 0.4 * np.sin(2 * np.pi * 60 * d) + 0.2 * np.sin(2 * np.pi * 120 * d)
+          hum += 0.15 * lowpass(rng.normal(0, 1, len(d)), 6)
+          save("flashlight_hum_loop", loop_fade(norm(hum, 0.35)))
+
+          d = t(10.0)
+          drone = 0.5 * np.sin(2 * np.pi * 42 * d) + 0.3 * np.sin(2 * np.pi * 63.5 * d)
+          wind = lowpass(rng.normal(0, 1, len(d)), 40) * (0.5 + 0.5 * np.sin(2 * np.pi * 0.12 * d))
+          save("ambience_hallway_loop", loop_fade(norm(drone * 0.4 + wind * 0.6, 0.4), 200))
+
+          hb = np.zeros(int(SR * 1.2))
+          for start in (0.0, 0.28):
+              k = int(SR * start); seg = int(SR * 0.16)
+              hb[k:k+seg] += np.sin(2 * np.pi * 55 * t(0.16)) * env(seg, 0.01, 18)
+          save("heartbeat_loop", loop_fade(norm(hb, 0.8), 10))
+
+          n = int(SR * 2.4)
+          br = lowpass(rng.normal(0, 1, n), 9) * np.sin(np.pi * np.linspace(0, 1, n)) ** 2
+          save("breathing_scared", norm(br, 0.45))
+
+          n = int(SR * 3.0)
+          cr = fm(310, 9, 3.0, 3.1) * (0.5 + 0.5 * np.sin(2 * np.pi * 2.3 * t(3.0)))
+          cr *= 0.2 + 0.8 * (rng.random(n) > 0.9992)
+          save("amyr_servo_creak", norm(cr, 0.55))
+
+          n = int(SR * 1.8)
+          gr = fm(95, 6, 1.8, 1.5) + 0.4 * lowpass(rng.normal(0, 1, n), 14)
+          gr *= np.clip(np.linspace(0, 1, n) * 4, 0, 1) * (1 - np.linspace(0, 1, n) * 0.6)
+          save("amyr_growl", norm(gr, 0.85))
+
+          n = int(SR * 1.2)
+          sc = np.tanh(3.5 * fm(1450, 14, 1.2, 2.37)) * env(n, 0.02, 2.5)
+          sc += 0.3 * lowpass(rng.normal(0, 1, n), 4) * env(n, 0.005, 4)
+          save("amyr_attack_screech", norm(sc, 0.95))
+
+          n = int(SR * 1.5)
+          js = np.tanh(4 * fm(60, 3, 1.5)) * env(n, 0.003, 3.5) + 0.8 * lowpass(rng.normal(0, 1, n), 5) * env(n, 0.002, 6)
+          save("jumpscare_stinger", norm(js, 1.0))
+
+          n = int(SR * 1.0)
+          bang = (np.sin(2 * np.pi * 180 * t(1.0)) + 0.5 * np.sin(2 * np.pi * 277 * t(1.0))) * env(n, 0.002, 7)
+          save("distant_clang", norm(bang, 0.6))
+
+          n = int(SR * 0.15)
+          step = lowpass(rng.normal(0, 1, n), 10) * env(n, 0.002, 25) + 0.3 * np.sin(2 * np.pi * 400 * t(0.15)) * env(n, 0.001, 40)
+          save("amyr_leg_step", norm(step, 0.5))
+          AMYR_SYNTH_PY_EOF
+
+      - name: Instalar Python y dependencias
+        run: pip install pyyaml numpy
+
+      - name: Generar sonidos y proyecto Godot
+        run: |
+          python tools/synth_audio.py
+          python tools/build_project.py
+
+      - name: Instalar Godot 4.3 y plantillas de exportación
+        run: |
+          BASE=https://github.com/godotengine/godot/releases/download/4.3-stable
+          curl -fL -o godot.zip "$BASE/Godot_v4.3-stable_linux.x86_64.zip"
+          unzip -q godot.zip && mv Godot_v4.3-stable_linux.x86_64 godot && chmod +x godot
+          curl -fL -o templates.tpz "$BASE/Godot_v4.3-stable_export_templates.tpz"
+          mkdir -p ~/.local/share/godot/export_templates/4.3.stable
+          unzip -q -j templates.tpz -d ~/.local/share/godot/export_templates/4.3.stable
+
+      - name: Instalar Java y Android SDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+
+      - name: Crear keystore de depuración
+        run: |
+          keytool -genkeypair -v -keystore debug.keystore -storepass android -keypass android \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Importar recursos y exportar APK
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
         run: |
           mkdir -p build
-          godot --headless --path game --export-debug "Android" "$GITHUB_WORKSPACE/build/SubaruRacing.apk"
-          ls -la build
-          test -f build/SubaruRacing.apk
+          ./godot --headless --import
+          ./godot --headless --export-debug "Android" build/AmyrPasillo.apk
 
-      - uses: actions/upload-artifact@v4
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
         with:
-          name: SubaruRacing-APK
-          path: build/SubaruRacing.apk
+          name: AmyrPasillo-APK
+          path: build/AmyrPasillo.apk
