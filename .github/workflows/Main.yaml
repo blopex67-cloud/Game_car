@@ -151,8 +151,387 @@ jobs:
       - name: Crear scripts del juego
         run: |
           set -e
+          cat > game/car_audio.gd <<'EOF'
+          # Sintetizador del coche (solo el jugador): bóxer 4 cilindros con turbo, frenos, chirridos y choques.
+          extends RefCounted
+
+          const RATE = 22050.0
+          const CLANG_F = [1870.0, 2540.0, 3710.0]
+
+
+          class Svf:
+              var lp = 0.0
+              var bp = 0.0
+
+              # Filtro pasabanda de estado variable. f = 2*sin(PI*fc/RATE). Normalizado a ganancia ~1 en el centro.
+              func run(x: float, f: float, q: float) -> float:
+                  lp += f * bp
+                  var hp = x - lp - q * bp
+                  bp += f * hp
+                  return bp * q
+
+
+          var cyc = 0.0
+          var last_slot = -1
+          var pulse = 0.0
+          var prev_thr = 0.0
+          var prev_brk = 0.0
+          var prev_gear = 1
+          var blow_env = 0.0
+          var pop_env = 0.0
+          var clunk_env = 0.0
+          var blip_env = 0.0
+          var thud_env = 0.0
+          var clang_env = 0.0
+          var crash_env = 0.0
+          var stick_ph = 0.0
+          var scr_ph = 0.0
+          var scr_mod = 0.0
+          var clunk_ph = 0.0
+          var blip_ph = 0.0
+          var thud_ph = 0.0
+          var clang_ph = [0.0, 0.0, 0.0]
+          var exh_mid = Svf.new()
+          var exh_low = Svf.new()
+          var turbo = Svf.new()
+          var blow = Svf.new()
+          var crackle = Svf.new()
+          var squeal = Svf.new()
+          var scr_band = Svf.new()
+          var crash_band = Svf.new()
+
+
+          func trigger_crash(dv: float):
+              var s = clampf(dv / 15.0, 0.0, 1.0)
+              thud_env = maxf(thud_env, 0.4 + 0.6 * s)
+              clang_env = maxf(clang_env, s * 0.9)
+              crash_env = maxf(crash_env, s)
+
+
+          static func _wrap(x: float) -> float:
+              return x - floorf(x)
+
+
+          func fill(n: int, rpm: float, thr: float, brk: float, slip: float, spd: float, grounded: bool, gear: int) -> PackedVector2Array:
+              var buf = PackedVector2Array()
+              buf.resize(n)
+              # eventos de un solo disparo (no por muestra)
+              if prev_thr > 0.5 and thr < 0.1 and rpm > 3800.0:
+                  blow_env = 1.0
+              if brk > 0.5 and prev_brk <= 0.5:
+                  clunk_env = 1.0
+              if gear != prev_gear:
+                  blip_env = 1.0
+                  prev_gear = gear
+              prev_thr = thr
+              prev_brk = brk
+
+              var cyc_inc = (rpm / 120.0) / RATE
+              var load = 0.3 + 0.7 * thr
+              var boost = clampf((rpm - 2800.0) / 3000.0, 0.0, 1.0) * thr
+              var overrun = thr < 0.05 and rpm > 3000.0
+              var f_mid = 2.0 * sin(PI * clampf(140.0 + rpm * 0.04, 120.0, 800.0) / RATE)
+              var f_low = 2.0 * sin(PI * 85.0 / RATE)
+              var f_turbo = 2.0 * sin(PI * clampf(2000.0 + rpm * 0.3, 2000.0, 3600.0) / RATE)
+              var f_blow = 2.0 * sin(PI * 3100.0 / RATE)
+              var f_crk = 2.0 * sin(PI * 1500.0 / RATE)
+              var f_sq = 2.0 * sin(PI * 2600.0 / RATE)
+              var f_scr = 2.0 * sin(PI * 2400.0 / RATE)
+              var f_crash = 2.0 * sin(PI * 700.0 / RATE)
+              var sq_amt = clampf(brk, 0.0, 1.0) * clampf((spd - 3.0) / 8.0, 0.0, 1.0) * 0.18
+              var scr_amt = clampf((0.8 - slip) / 0.4, 0.0, 1.0) * clampf((spd - 4.0) / 8.0, 0.0, 1.0) * (1.0 if grounded else 0.0) * 0.4
+
+              for i in range(n):
+                  # Motor bóxer: 4 explosiones por ciclo de 720 grados, con eco de escape
+                  cyc += cyc_inc
+                  if cyc >= 1.0:
+                      cyc -= 1.0
+                  var slot = int(cyc * 4.0)
+                  if slot != last_slot:
+                      last_slot = slot
+                      pulse = load * (0.8 + 0.2 * randf())
+                  pulse *= 0.993
+                  var nz = randf() * 2.0 - 1.0
+                  var eng = exh_low.run(pulse, f_low, 0.9) * 1.4 + exh_mid.run(pulse, f_mid, 0.55) * 0.6
+                  # turbo: silbido que sube con las revoluciones y la presión
+                  eng += turbo.run(nz, f_turbo, 0.35) * boost * 0.05
+                  # válvula de descarga al soltar el gas a altas vueltas (psshh)
+                  if blow_env > 0.001:
+                      blow_env *= 0.99984
+                      eng += blow.run(nz, f_blow, 0.4) * blow_env * 0.5
+                  # petardeos de escape al retener
+                  if overrun and randf() < 0.0035:
+                      pop_env = 0.6 + 0.4 * randf()
+                  if pop_env > 0.001:
+                      pop_env *= 0.985
+                      eng += crackle.run(nz, f_crk, 0.5) * pop_env * 0.8
+                  eng = tanh(eng * 2.0 * (0.3 + 0.7 * load)) * 0.5
+                  var out = eng
+
+                  # frenos: chirrido con modulación de "stick-slip"
+                  if sq_amt > 0.0001:
+                      stick_ph = _wrap(stick_ph + 37.0 / RATE)
+                      out += squeal.run(nz, f_sq, 0.2) * sq_amt * (0.55 + 0.45 * sin(TAU * stick_ph))
+                  # neumáticos derrapando: tono con vibrato + ruido
+                  if scr_amt > 0.0001:
+                      scr_mod = _wrap(scr_mod + 5.0 / RATE)
+                      scr_ph = _wrap(scr_ph + 1250.0 * (1.0 + 0.03 * sin(TAU * scr_mod)) / RATE)
+                      var tone = sin(TAU * scr_ph) * 0.5 + sin(TAU * scr_ph * 2.0) * 0.25
+                      out += (tone * 0.35 + scr_band.run(nz, f_scr, 0.25) * 0.5) * scr_amt
+                  # "clac" de pastillas al empezar a frenar
+                  if clunk_env > 0.001:
+                      clunk_env *= 0.9992
+                      clunk_ph = _wrap(clunk_ph + 95.0 / RATE)
+                      out += sin(TAU * clunk_ph) * clunk_env * 0.25
+                  # cambio de marcha
+                  if blip_env > 0.001:
+                      blip_env *= 0.9985
+                      blip_ph = _wrap(blip_ph + 240.0 / RATE)
+                      out += (sin(TAU * blip_ph) * 0.6 + nz * 0.25) * blip_env * 0.15
+
+                  # choques: golpe grave, metal que resuena y crujido
+                  if thud_env > 0.001:
+                      thud_env *= 0.99974
+                      thud_ph = _wrap(thud_ph + 52.0 / RATE)
+                      out += sin(TAU * thud_ph) * thud_env * 0.5
+                  if clang_env > 0.001:
+                      clang_env *= 0.99985
+                      var c = 0.0
+                      for k in range(3):
+                          clang_ph[k] = _wrap(clang_ph[k] + CLANG_F[k] / RATE)
+                          c += sin(TAU * clang_ph[k]) / (k + 1.0)
+                      out += c * clang_env * 0.2
+                  if crash_env > 0.001:
+                      crash_env *= 0.9994
+                      out += crash_band.run(nz, f_crash, 0.5) * crash_env * 0.5
+
+                  var s = clampf(out, -1.0, 1.0)
+                  buf[i] = Vector2(s, s)
+              return buf
+          EOF
+          cat > game/car_damage.gd <<'EOF'
+          # Abolladuras: deforma los vértices de la carrocería en la GPU con un shader de vértices.
+          extends RefCounted
+
+          const SHADER_CODE = """
+          shader_type spatial;
+
+          uniform vec4 albedo_color : source_color = vec4(1.0);
+          uniform sampler2D albedo_tex : source_color, filter_linear_mipmap, repeat_enable;
+          uniform bool use_albedo_tex = false;
+          uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap, repeat_enable;
+          uniform bool use_normal_tex = false;
+          uniform float metallic_v : hint_range(0.0, 1.0) = 0.0;
+          uniform float roughness_v : hint_range(0.0, 1.0) = 0.5;
+          uniform float clearcoat_v : hint_range(0.0, 1.0) = 0.0;
+          uniform vec3 emit_color : source_color = vec3(0.0);
+          uniform float emit_energy = 0.0;
+          uniform vec4 dent_pos[3];
+          uniform vec4 dent_dir[3];
+          uniform float dent_radius = 1.0;
+
+          void vertex() {
+          	for (int i = 0; i < 3; i++) {
+          		float d = distance(VERTEX, dent_pos[i].xyz);
+          		if (dent_dir[i].w > 0.0 && d < dent_radius) {
+          			float f = 1.0 - d / dent_radius;
+          			f = f * f * (3.0 - 2.0 * f);
+          			VERTEX += dent_dir[i].xyz * dent_dir[i].w * f;
+          		}
+          	}
+          }
+
+          void fragment() {
+          	vec4 c = albedo_color;
+          	if (use_albedo_tex) {
+          		c *= texture(albedo_tex, UV);
+          	}
+          	ALBEDO = c.rgb;
+          	METALLIC = metallic_v;
+          	ROUGHNESS = roughness_v;
+          	CLEARCOAT = clearcoat_v;
+          	if (use_normal_tex) {
+          		NORMAL_MAP = texture(normal_tex, UV).rgb;
+          	}
+          	EMISSION = emit_color * emit_energy;
+          }
+          """
+
+          var targets = []
+          var dents = []
+
+
+          func _init():
+              for i in range(3):
+                  dents.append([Vector3.ZERO, Vector3.ZERO, 0.0])
+
+
+          static func make_shader() -> Shader:
+              var sh = Shader.new()
+              sh.code = SHADER_CODE
+              return sh
+
+
+          # Copia un material estándar a un ShaderMaterial con los mismos colores y texturas
+          static func to_shader(m, sh: Shader) -> ShaderMaterial:
+              var sm = ShaderMaterial.new()
+              sm.shader = sh
+              sm.set_shader_parameter("albedo_color", m.albedo_color)
+              if m.albedo_texture != null:
+                  sm.set_shader_parameter("albedo_tex", m.albedo_texture)
+                  sm.set_shader_parameter("use_albedo_tex", true)
+              if m.normal_enabled and m.normal_texture != null:
+                  sm.set_shader_parameter("normal_tex", m.normal_texture)
+                  sm.set_shader_parameter("use_normal_tex", true)
+              sm.set_shader_parameter("metallic_v", m.metallic)
+              sm.set_shader_parameter("roughness_v", m.roughness)
+              sm.set_shader_parameter("clearcoat_v", 0.9 if (m is StandardMaterial3D and m.clearcoat_enabled) else 0.0)
+              if m.emission_enabled:
+                  var ec = m.emission
+                  sm.set_shader_parameter("emit_color", Vector3(ec.r, ec.g, ec.b))
+                  sm.set_shader_parameter("emit_energy", m.emission_energy_multiplier)
+              return sm
+
+
+          static func set_color(m, col: Color):
+              if m is ShaderMaterial:
+                  m.set_shader_parameter("albedo_color", col)
+              else:
+                  m.albedo_color = col
+
+
+          static func set_emit(m, e: float):
+              if m is ShaderMaterial:
+                  m.set_shader_parameter("emit_energy", e)
+              else:
+                  m.emission_energy_multiplier = e
+
+
+          func add_dent(pos: Vector3, inward: Vector3, s: float):
+              # sustituye la abolladura más débil (hay 3 ranuras)
+              var best = 0
+              for i in range(dents.size()):
+                  if dents[i][2] < dents[best][2]:
+                      best = i
+              dents[best] = [pos, inward.normalized(), 0.05 + 0.25 * s]
+              apply()
+
+
+          func reset():
+              for i in range(dents.size()):
+                  dents[i] = [Vector3.ZERO, Vector3.ZERO, 0.0]
+              apply()
+
+
+          # Pasa las abolladuras al espacio local de cada malla (cada una tiene su propia transformación)
+          func apply():
+              for t in targets:
+                  var mi = t[0]
+                  if not is_instance_valid(mi):
+                      continue
+                  var gt = mi.global_transform
+                  var inv = gt.affine_inverse()
+                  var sc = maxf(gt.basis.get_scale().x, 0.0001)
+                  var pa = []
+                  var da = []
+                  for d in dents:
+                      var lp = inv * d[0]
+                      var ld = (gt.basis.inverse() * d[1]).normalized()
+                      pa.append(Vector4(lp.x, lp.y, lp.z, 0.0))
+                      da.append(Vector4(ld.x, ld.y, ld.z, d[2] / sc))
+                  for sm in t[1]:
+                      if sm == null:
+                          continue
+                      sm.set_shader_parameter("dent_pos", pa)
+                      sm.set_shader_parameter("dent_dir", da)
+                      sm.set_shader_parameter("dent_radius", 1.3 / sc)
+          EOF
+          cat > game/car_fx.gd <<'EOF'
+          # Efectos de partículas: chispas, humo de choque, humo de neumáticos y de motor.
+          extends RefCounted
+
+
+          static func _mat(col: Color, unshaded: bool) -> StandardMaterial3D:
+              var m = StandardMaterial3D.new()
+              m.albedo_color = col
+              m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED if unshaded else BaseMaterial3D.SHADING_MODE_PER_PIXEL
+              m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+              return m
+
+
+          static func _cleanup(parent: Node, p: Node, t: float):
+              parent.get_tree().create_timer(t).timeout.connect(p.queue_free)
+
+
+          static func smoke_emitter(col: Color, size_s: float, life: float, amount: int) -> CPUParticles3D:
+              var p = CPUParticles3D.new()
+              p.amount = amount
+              p.lifetime = life
+              p.local_coords = false
+              p.direction = Vector3.UP
+              p.spread = 30.0
+              p.initial_velocity_min = 0.6
+              p.initial_velocity_max = 1.6
+              p.gravity = Vector3(0.0, 0.8, 0.0)
+              p.damping_min = 0.8
+              p.damping_max = 1.5
+              p.scale_amount_min = size_s
+              p.scale_amount_max = size_s * 2.2
+              p.color = col
+              var mesh = SphereMesh.new()
+              mesh.radius = 0.25
+              mesh.height = 0.5
+              mesh.radial_segments = 6
+              mesh.rings = 3
+              mesh.material = _mat(col, true)
+              p.mesh = mesh
+              return p
+
+
+          static func sparks(parent: Node, pos: Vector3, out_dir: Vector3, s: float):
+              var p = CPUParticles3D.new()
+              p.one_shot = true
+              p.explosiveness = 1.0
+              p.amount = int(14 + 26.0 * s)
+              p.lifetime = 0.55
+              p.local_coords = false
+              p.direction = out_dir.normalized()
+              p.spread = 55.0
+              p.initial_velocity_min = 4.0 + 6.0 * s
+              p.initial_velocity_max = 8.0 + 10.0 * s
+              p.gravity = Vector3(0.0, -9.8, 0.0)
+              p.scale_amount_min = 0.5
+              p.scale_amount_max = 1.2
+              var mesh = SphereMesh.new()
+              mesh.radius = 0.02
+              mesh.height = 0.04
+              mesh.radial_segments = 4
+              mesh.rings = 2
+              mesh.material = _mat(Color(1.0, 0.65, 0.2), true)
+              p.mesh = mesh
+              parent.add_child(p)
+              p.global_position = pos
+              p.emitting = true
+              _cleanup(parent, p, 1.2)
+
+
+          static func puff(parent: Node, pos: Vector3, s: float):
+              var p = smoke_emitter(Color(0.75, 0.75, 0.78, 0.6), 0.5, 1.2, int(8 + 20.0 * s))
+              p.one_shot = true
+              p.explosiveness = 0.8
+              parent.add_child(p)
+              p.global_position = pos
+              p.emitting = true
+              _cleanup(parent, p, 1.8)
+          EOF
           cat > game/car.gd <<'EOF'
           extends VehicleBody3D
+
+          const CarAudio = preload("res://car_audio.gd")
+          const CarDamage = preload("res://car_damage.gd")
+          const CarFX = preload("res://car_fx.gd")
+
+          signal crashed(dv, pos)
 
           # ================= AJUSTES (puedes tocarlos) =================
           const MODEL_SCALE = 0.245        # el modelo viene gigante: 1 unidad del modelo = 0.245 m
@@ -178,6 +557,13 @@ jobs:
           var input_locked = false
           var sound_on = true
           var power_mult = 1.0      # lo usan los modos sorpresa
+          var synth
+          var damage
+          var damage_total = 0.0
+          var impacts = []
+          var impact_cd = 0.0
+          var tire_smoke = []
+          var engine_smoke
 
           # ---- estado (lo lee el HUD) ----
           var gear = 1
@@ -216,6 +602,9 @@ jobs:
               center_of_mass = Vector3(0.0, 0.3, 0.0)
               continuous_cd = true
               can_sleep = false
+              contact_monitor = true
+              max_contacts_reported = 8
+              damage = CarDamage.new()
               angular_damp = 0.3
               linear_damp = 0.0
 
@@ -239,6 +628,7 @@ jobs:
               var model = scene.instantiate()
               visual.add_child(model)
               _style_materials(model)
+              make_deformable(model)
 
               var defs = [
                   ["FrontL", Vector3(3.145, 1.43, 5.28), true],
@@ -248,6 +638,14 @@ jobs:
               ]
               for d in defs:
                   _make_wheel(model, d[0], d[1], d[2])
+              tire_smoke = []
+              for w in wheels:
+                  if not w.get_meta("front"):
+                      var e = CarFX.smoke_emitter(Color(0.82, 0.82, 0.84, 0.55), 0.8, 1.1, 60)
+                      add_child(e)
+                      tire_smoke.append(e)
+              engine_smoke = CarFX.smoke_emitter(Color(0.12, 0.12, 0.12, 0.7), 0.6, 1.6, 40)
+              add_child(engine_smoke)
               if with_audio:
                   _setup_audio()
 
@@ -381,7 +779,7 @@ jobs:
           func set_paint(i):
               paint_idx = i % PAINTS.size()
               for m in paint_mats:
-                  m.albedo_color = PAINTS[paint_idx]
+                  CarDamage.set_color(m, PAINTS[paint_idx])
 
 
           func next_paint():
@@ -395,7 +793,94 @@ jobs:
 
 
           # ---------------------------------------------------------------
+          # ---------------- choques, daños y efectos ----------------
+          func _integrate_forces(state):
+              for i in range(state.get_contact_count()):
+                  var dv = state.get_contact_impulse(i).length() / maxf(mass, 1.0)
+                  if dv > 3.5:
+                      impacts.append([global_transform * state.get_contact_local_position(i), dv])
+
+
+          func _process_impacts():
+              if impacts.is_empty():
+                  return
+              var best = impacts[0]
+              for im in impacts:
+                  if im[1] > best[1]:
+                      best = im
+              impacts.clear()
+              _on_impact(best[0], best[1])
+
+
+          func _on_impact(pos: Vector3, dv: float):
+              if impact_cd > 0.0:
+                  return
+              impact_cd = 0.15
+              var s = clampf(dv / 18.0, 0.0, 1.0)
+              damage.add_dent(pos, global_position - pos, s)
+              damage_total = minf(1.0, damage_total + s * 0.2)
+              if synth != null:
+                  synth.trigger_crash(dv)
+              CarFX.sparks(get_parent(), pos, (pos - global_position).normalized(), s)
+              CarFX.puff(get_parent(), pos, s)
+              crashed.emit(dv, pos)
+
+
+          func repair():
+              damage_total = 0.0
+              if damage != null:
+                  damage.reset()
+
+
+          # Sustituye los materiales de carrocería por shaders deformables (las ruedas y cristales no)
+          func make_deformable(model):
+              damage.shader = CarDamage.make_shader()
+              for mi in _meshes(model, []):
+                  if mi.mesh == null:
+                      continue
+                  var mats = []
+                  for i in range(mi.mesh.get_surface_count()):
+                      var m = mi.get_surface_override_material(i)
+                      var key = ""
+                      if m != null:
+                          key = (String(m.resource_name) + " " + String(mi.name)).to_lower()
+                      if m == null or not (m is StandardMaterial3D) or key.contains("glass") or key.contains("tire") or key.contains("rubber"):
+                          mats.append(null)
+                          continue
+                      var sm = CarDamage.to_shader(m, damage.shader)
+                      var pidx = paint_mats.find(m)
+                      if pidx >= 0:
+                          paint_mats[pidx] = sm
+                      var tidx = tail_mats.find(m)
+                      if tidx >= 0:
+                          tail_mats[tidx] = sm
+                      mi.set_surface_override_material(i, sm)
+                      mats.append(sm)
+                  damage.targets.append([mi, mats])
+
+
+          # Humo de neumáticos al derrapar y humo de motor si el coche está muy dañado
+          func _update_fx():
+              var k = 0
+              for w in wheels:
+                  if w.get_meta("front"):
+                      continue
+                  if k >= tire_smoke.size():
+                      break
+                  var e = tire_smoke[k]
+                  k += 1
+                  var sliding = w.is_in_contact() and w.get_skidinfo() < 0.7 and speed_ms > 6.0
+                  e.emitting = sliding or (handbrake_in and speed_ms > 6.0 and w.is_in_contact())
+                  e.global_position = w.global_position - global_transform.basis.y * wheel_r
+              if engine_smoke != null:
+                  engine_smoke.emitting = damage_total > 0.45
+                  engine_smoke.global_position = global_position + global_transform.basis * Vector3(0.0, 1.0, 1.6)
+
+
           func _physics_process(delta):
+              impact_cd = maxf(impact_cd - delta, 0.0)
+              _process_impacts()
+              _update_fx()
               if wheels.is_empty():
                   return
               var fwd = -global_transform.basis.z
@@ -499,7 +984,7 @@ jobs:
               var r = maxf(rpm_wheel, lerpf(IDLE_RPM, 3600.0, t))
               if r > REDLINE:
                   return 0.0
-              return _torque(r) * ratio * 0.9 / wheel_r * t * DRIVETRAIN * power_mult
+              return _torque(r) * ratio * 0.9 / wheel_r * t * DRIVETRAIN * power_mult * (1.0 - 0.25 * damage_total)
 
 
           func _powertrain(delta, tin, bin, fwd):
@@ -561,7 +1046,7 @@ jobs:
               if bl != last_bl:
                   last_bl = bl
                   for m in tail_mats:
-                      m.emission_energy_multiplier = 5.0 if bl else 0.4
+                      CarDamage.set_emit(m, 5.0 if bl else 0.4)
 
               safe_timer -= delta
               if safe_timer <= 0.0:
@@ -600,6 +1085,7 @@ jobs:
 
 
           func _setup_audio():
+              synth = CarAudio.new()
               var gen = AudioStreamGenerator.new()
               gen.mix_rate = MIX_RATE
               gen.buffer_length = 0.12
@@ -612,31 +1098,13 @@ jobs:
 
 
           func _fill_audio():
-              if playback == null or not sound_on:
+              if playback == null or not sound_on or synth == null:
                   return
               var n = playback.get_frames_available()
               if n <= 0:
                   return
               n = mini(n, 2000)
-              var inc = (rpm / 60.0 * 2.0) / MIX_RATE
-              var eload = 0.35 + 0.65 * throttle_in
-              var amp = 0.2 + 0.16 * eload
-              var skid_amp = 0.0
-              if contact_count > 0 and slip < 0.9:
-                  skid_amp = clampf((0.9 - slip) * 1.6, 0.0, 0.5) * clampf(speed_ms / 8.0, 0.0, 1.0)
-              var buf = PackedVector2Array()
-              buf.resize(n)
-              for i in range(n):
-                  phase += inc
-                  if phase > 1.0:
-                      phase -= 1.0
-                  var p = phase * TAU
-                  var s = sin(p) + 0.55 * sin(2.0 * p + 0.6) + 0.35 * sin(3.0 * p + 1.3) + 0.22 * sin(4.0 * p) + 0.12 * sin(6.0 * p)
-                  s = tanh(s * (0.9 + eload)) * amp
-                  noise_lp = lerpf(noise_lp, randf() * 2.0 - 1.0, 0.25)
-                  s += noise_lp * (0.05 + 0.1 * eload + skid_amp)
-                  buf[i] = Vector2(s, s)
-              playback.push_buffer(buf)
+              playback.push_buffer(synth.fill(n, rpm, throttle_in, brake_in, slip, speed_ms, contact_count > 0, gear))
           EOF
           cat > game/ai_driver.gd <<'EOF'
           # Corredor: el jugador o una IA. La IA sigue la línea grabada en la vuelta de reconocimiento.
@@ -1168,6 +1636,7 @@ jobs:
           var race_time = 0.0
           var finish_count = 0
           var surprise = false
+          var shake = 0.0
           var mod_name = ""
 
 
@@ -1193,6 +1662,7 @@ jobs:
               add_child(car)
               car.global_transform = spawn_xf
               car.set_spawn(spawn_xf)
+              car.crashed.connect(_on_crash)
 
               player_r = RacerScript.new()
               player_r.car = car
@@ -1320,6 +1790,8 @@ jobs:
           # ================= MENÚ Y MODOS =================
           func go_menu():
               state = State.MENU
+              Engine.time_scale = 1.0
+              shake = 0.0
               _remove_ais()
               _clear_mods()
               countdown = -1.0
@@ -1423,6 +1895,7 @@ jobs:
               r.car.linear_velocity = Vector3.ZERO
               r.car.angular_velocity = Vector3.ZERO
               r.car.gear = 1
+              r.car.repair()
               r.car.input_locked = true
               r.idx = i
               r.laps = 0
@@ -1504,6 +1977,7 @@ jobs:
               car.linear_velocity = Vector3.ZERO
               car.angular_velocity = Vector3.ZERO
               car.gear = 1
+              car.repair()
               have_prev = false
 
 
@@ -1629,6 +2103,17 @@ jobs:
               return f.normalized()
 
 
+          func _on_crash(dv: float, _pos: Vector3):
+              shake = maxf(shake, clampf(dv / 10.0, 0.0, 1.0))
+              if dv > 10.0:
+                  Engine.time_scale = 0.4
+                  get_tree().create_timer(0.45, true, false, true).timeout.connect(_end_slowmo)
+
+
+          func _end_slowmo():
+              Engine.time_scale = 1.0
+
+
           func respawn():
               car.respawn()
               have_prev = false
@@ -1723,6 +2208,9 @@ jobs:
                   camera.look_at(cb.origin + Vector3(0.0, 0.9, 0.0) + cam_dir * 2.0, Vector3.UP)
               var tf = base_fov + clampf(car.speed_kmh / 250.0, 0.0, 1.0) * 20.0
               camera.fov = lerpf(camera.fov, tf, clampf(delta * 3.0, 0.0, 1.0))
+              if shake > 0.0:
+                  camera.global_position += Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * shake * 0.2
+                  shake = maxf(0.0, shake - delta * 2.5)
           EOF
 
       - name: Instalar Godot 4.3 y plantillas de exportacion
@@ -1776,7 +2264,7 @@ jobs:
       - name: Revisar scripts (falla si hay errores de sintaxis)
         run: |
           fail=0
-          for s in car ai_driver menu hud main; do
+          for s in car car_audio car_damage car_fx ai_driver menu hud main; do
             echo "== $s.gd =="
             out=$(godot --headless --path game --check-only --script "res://$s.gd" 2>&1) || true
             echo "$out"
