@@ -1,932 +1,1075 @@
-name: Amyr - Pasillo Oscuro (generar y compilar APK)
-
-# UN SOLO ARCHIVO: este YAML contiene el juego completo (game.yaml, scripts y herramientas).
-# Pasos:
-#   1. Sube assets/models/Amyr.fbx al repositorio (es binario, no puede ir en YAML).
-#   2. Sube este archivo a .github/workflows/build-apk.yml
-#   3. Actions -> Amyr - Pasillo Oscuro -> Run workflow. Descarga el APK del artefacto.
+name: Build Amyr APK
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  build-apk:
-    runs-on: ubuntu-22.04
+  build:
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Descargar repositorio
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Localizar y mover modelo FBX
-        run: |
-          mkdir -p assets/models
-          if [ ! -f assets/models/Amyr.fbx ]; then
-            FOUND=$(find . -iname "*amyr*.fbx" -not -path "./.git/*" | head -n 1)
-            if [ -z "$FOUND" ]; then
-              FOUND=$(find . -iname "*.fbx" -not -path "./.git/*" | head -n 1)
-            fi
-            if [ -z "$FOUND" ]; then
-              echo "::error::No hay ningún archivo .fbx en el repositorio. Sube Amyr.fbx a main."
-              exit 1
-            fi
-            cp "$FOUND" assets/models/Amyr.fbx
-            echo "Modelo encontrado en: $FOUND"
-          fi
-
-      - name: Escribir el juego desde este YAML
-        run: |
-          mkdir -p "$(dirname game.yaml)"
-          cat > game.yaml << 'AMYR_GAME_YAML_EOF'
-          meta:
-            name: Amyr - Pasillo Oscuro
-            engine: Godot 4.3
-            orientation: landscape
-            note: Todo el juego está en este archivo. Los binarios (FBX, WAV, JPG) quedan en assets/.
-          game:
-            title: Amyr - Pasillo Oscuro
-            version: 0.1.0
-            package: com.tuestudio.amyrhorror
-            orientation: landscape
-            target_sdk: 34
-            min_sdk: 24
-          graphics:
-            renderer: forward_plus
-            msaa: 2x
-            shadow_resolution: 2048
-            ssao: true
-            ssr: false
-            glow: true
-            fog:
-              enabled: true
-              density: 0.035
-              color: '#0a0d0c'
-            exposure: 1.1
-            target_fps: 60
-          player:
-            name: Guardia nocturno
-            view: first_person
-            eye_height: 1.65
-            walk_speed: 2.2
-            run_speed: 4.0
-            look_sensitivity: 0.12
-            touch_controls:
-              move_stick: left
-              look_area: right
-              buttons:
-              - flashlight
-              - run
-            flashlight:
-              enabled: true
-              battery_seconds: 120
-              intensity: 6.0
-              range: 22.0
-              angle_deg: 28
-              color: '#fff4d6'
-              flicker_when_low: true
-              sounds:
-                true: flashlight_click
-                false: flashlight_click
-                hum: flashlight_hum_loop
-            stamina:
-              max: 100
-              drain_per_second: 18
-              regen_per_second: 12
-            health:
-              max: 100
-              hit_damage: 100
-          camera:
-            near: 0.05
-            far: 120.0
-            fov: 72
-            head_bob: true
-            bob_amount: 0.035
-          game_over:
-            jumpscare_sound: jumpscare_stinger
-            screen_fade_seconds: 1.2
-            retry_delay_seconds: 3.0
-          model:
-            file: assets/models/Amyr.fbx
-            scale: 1.0
-            reference_texture: assets/textures/amyr_reference.jpg
-            height_meters: 1.9
-          skeleton:
-            root: Hips
-            head: Head
-            neck: Neck
-            spine:
-            - Spine
-            - Spine1
-            legs:
-              left:
-                root: LeftUpLeg
-                middle: LeftLeg
-                end: LeftFoot
-              right:
-                root: RightUpLeg
-                middle: RightLeg
-                end: RightFoot
-            arms:
-              left:
-                root: LeftArm
-                middle: LeftForeArm
-                end: LeftHand
-              right:
-                root: RightArm
-                middle: RightForeArm
-                end: RightHand
-          ik_legs:
-            enabled: true
-            step_length: 0.75
-            step_height: 0.18
-            step_duration: 0.42
-            run_step_duration: 0.24
-            foot_raycast_length: 2.0
-            hip_bob: 0.05
-            idle_sway: 0.01
-          ik_arms:
-            enabled: true
-            idle_pose: relaxed
-            attack_reach: 1.1
-          states:
-            idle:
-              description: Quieto, mirando al vacío. No te ve.
-              animation: idle
-              ik_legs: planted
-              sounds:
-                loop: ambience_hallway_loop
-                random:
-                - amyr_servo_creak
-                random_interval:
-                - 6
-                - 14
-              transitions:
-              - to: wander
-                after_seconds:
-                - 8
-                - 15
-              - to: hunt
-                when: player_seen
-            wander:
-              description: Camina por el escenario sin saber dónde estás.
-              animation: walk
-              speed: 1.2
-              ik_legs: stepping
-              sounds:
-                step: amyr_leg_step
-                random:
-                - amyr_servo_creak
-              transitions:
-              - to: idle
-                when: reached_waypoint
-              - to: hunt
-                when: player_seen
-            hunt:
-              description: Te ha visto. Corre hacia ti.
-              animation: run
-              speed: 3.4
-              ik_legs: stepping_fast
-              sounds:
-                loop: amyr_growl
-                step: amyr_leg_step
-              transitions:
-              - to: attack
-                when: distance_lt
-                distance: 1.6
-              - to: search
-                when: lost_sight_for_seconds
-                seconds: 6
-            search:
-              description: Pierde tu rastro y mira alrededor.
-              animation: idle
-              speed: 0.6
-              sounds:
-                random:
-                - amyr_servo_creak
-                - distant_clang
-              transitions:
-              - to: hunt
-                when: player_seen
-              - to: wander
-                after_seconds:
-                - 10
-                - 18
-            attack:
-              description: 'Ataque estilo FNAF: se queda quieto, se congela y se lanza.'
-              animation: attack
-              freeze_seconds: 0.8
-              ik_arms: attack_reach
-              sounds:
-                on_enter: amyr_attack_screech
-              on_hit: game_over
-              transitions:
-              - to: wander
-                when: missed
-          vision:
-            fov_deg: 110
-            range: 18
-            requires_light: true
-            flashlight_detect_range: 14
-            hearing_radius: 5
-            memory_seconds: 6
-          audio:
-            bus:
-              master: 1.0
-              music: 0.6
-              sfx: 1.0
-              ambience: 0.5
-              enemy: 1.0
-            sounds:
-              footstep_1:
-                file: assets/audio/footstep_1.wav
-                bus: sfx
-                volume_db: -6
-                pitch_var: 0.08
-              footstep_2:
-                file: assets/audio/footstep_2.wav
-                bus: sfx
-                volume_db: -6
-                pitch_var: 0.08
-              footstep_3:
-                file: assets/audio/footstep_3.wav
-                bus: sfx
-                volume_db: -6
-                pitch_var: 0.08
-              flashlight_click:
-                file: assets/audio/flashlight_click.wav
-                bus: sfx
-                volume_db: -3
-              flashlight_hum_loop:
-                file: assets/audio/flashlight_hum_loop.wav
-                bus: sfx
-                volume_db: -18
-                loop: true
-              ambience_hallway_loop:
-                file: assets/audio/ambience_hallway_loop.wav
-                bus: ambience
-                volume_db: -10
-                loop: true
-              heartbeat_loop:
-                file: assets/audio/heartbeat_loop.wav
-                bus: music
-                volume_db: -4
-                loop: true
-                trigger: player.health < 50 or enemy.state == hunt
-              breathing_scared:
-                file: assets/audio/breathing_scared.wav
-                bus: music
-                volume_db: -8
-                trigger: enemy.state == hunt
-              amyr_servo_creak:
-                file: assets/audio/amyr_servo_creak.wav
-                bus: enemy
-                volume_db: -12
-                spatial: true
-                max_distance: 20
-              amyr_growl:
-                file: assets/audio/amyr_growl.wav
-                bus: enemy
-                volume_db: -4
-                spatial: true
-                loop: true
-                max_distance: 30
-              amyr_leg_step:
-                file: assets/audio/amyr_leg_step.wav
-                bus: enemy
-                volume_db: -6
-                spatial: true
-                max_distance: 25
-              amyr_attack_screech:
-                file: assets/audio/amyr_attack_screech.wav
-                bus: enemy
-                volume_db: 0
-                spatial: true
-                max_distance: 40
-              jumpscare_stinger:
-                file: assets/audio/jumpscare_stinger.wav
-                bus: master
-                volume_db: 2
-              distant_clang:
-                file: assets/audio/distant_clang.wav
-                bus: enemy
-                volume_db: -10
-                spatial: true
-                max_distance: 35
-          scenario:
-            id: test_hallway
-            name: Pasillo de prueba
-            size_meters:
-            - 40
-            - 30
-            ceiling_height: 3.0
-            floor_material: tiles_dirty
-            wall_material: wallpaper_old
-            lights:
-            - id: ceiling_1
-              pos:
-              - 0
-              - 2.8
-              - -4
-              color: '#ffe2a8'
-              energy: 1.2
-              flicker: true
-            - id: ceiling_2
-              pos:
-              - 0
-              - 2.8
-              - 4
-              color: '#ffe2a8'
-              energy: 0.4
-              flicker: true
-              flicker_freq: 9
-            - id: exit_sign
-              pos:
-              - -14
-              - 2.6
-              - 0
-              color: '#ff2a2a'
-              energy: 0.8
-              flicker: false
-            spawn:
-              player:
-                pos:
-                - 0
-                - 1.65
-                - 10
-                facing_deg: 180
-              amyr:
-                pos:
-                - 0
-                - 0
-                - -12
-                facing_deg: 0
-                start_state: idle
-            waypoints:
-            - - -8
-              - 0
-              - -10
-            - - 8
-              - 0
-              - -10
-            - - 8
-              - 0
-              - 0
-            - - -8
-              - 0
-              - 0
-            - - -8
-              - 0
-              - 8
-            - - 8
-              - 0
-              - 8
-            walls:
-            - from:
-              - -10
-              - 0
-              - -15
-              to:
-              - 10
-              - 0
-              - -15
-            - from:
-              - -10
-              - 0
-              - 15
-              to:
-              - 10
-              - 0
-              - 15
-            - from:
-              - -10
-              - 0
-              - -15
-              to:
-              - -10
-              - 0
-              - 15
-            - from:
-              - 10
-              - 0
-              - -15
-              to:
-              - 10
-              - 0
-              - 15
-            - from:
-              - -3
-              - 0
-              - -2
-              to:
-              - -3
-              - 0
-              - 4
-              thickness: 0.2
-            - from:
-              - 3
-              - 0
-              - -6
-              to:
-              - 3
-              - 0
-              - -1
-              thickness: 0.2
-            props:
-            - type: arcade_cabinet
-              pos:
-              - -9
-              - 0
-              - -13
-              rot_deg: 90
-            - type: metal_pipe
-              pos:
-              - 9.2
-              - 0
-              - -14
-            - type: crate
-              pos:
-              - -4
-              - 0
-              - 10
-            - type: tv_static
-              pos:
-              - 0
-              - 0.6
-              - -14.5
-            exit:
-              pos:
-              - -14
-              - 1.0
-              - 0
-              win_message: Escapaste.
-            checkpoints:
-            - pos:
-              - 0
-              - 0
-              - 10
-              id: start
-            - pos:
-              - 0
-              - 0
-              - -4
-              id: middle
-            debug:
-              show_ik_targets: true
-              show_vision_cone: true
-              show_waypoints: true
-              god_mode: false
-          files:
-            project.godot: '; Godot 4.3 - Amyr: Pasillo Oscuro
-
-              config_version=5
-
-
-              [application]
-
-              config/name="Amyr - Pasillo Oscuro"
-
-              config/version="0.1.0"
-
-              run/main_scene="res://scenes/main.tscn"
-
-              config/features=PackedStringArray("4.3", "Forward Plus")
-
-
-              [display]
-
-              window/size/viewport_width=1920
-
-              window/size/viewport_height=1080
-
-              window/handheld/orientation=0
-
-              window/stretch/mode="canvas_items"
-
-
-              [rendering]
-
-              renderer/rendering_method="forward_plus"
-
-              anti_aliasing/quality/msaa_3d=1
-
-              environment/ssao/enabled=true
-
-              lights_and_shadows/directional_shadow/size=2048
-
-              '
-            scenes/main.tscn: '[gd_scene load_steps=2 format=3]
-
-
-              [ext_resource type="Script" path="res://scripts/main.gd" id="1"]
-
-
-              [node name="Main" type="Node3D"]
-
-              script = ExtResource("1")
-
-              '
-            export_presets.cfg: '[preset.0]
-
-
-              name="Android"
-
-              platform="Android"
-
-              runnable=true
-
-              dedicated_server=false
-
-              custom_features=""
-
-              export_filter="all_resources"
-
-              include_filter=""
-
-              exclude_filter=""
-
-              export_path="build/AmyrPasillo.apk"
-
-              encryption_include_filters=""
-
-              encryption_exclude_filters=""
-
-              encrypt_pck=false
-
-              encrypt_directory=false
-
-
-              [preset.0.options]
-
-
-              custom_template/debug=""
-
-              custom_template/release=""
-
-              gradle_build/use_gradle_build=false
-
-              gradle_build/export_format=0
-
-              architectures/armeabi-v7a=false
-
-              architectures/arm64-v8a=true
-
-              architectures/x86=false
-
-              architectures/x86_64=false
-
-              version/code=1
-
-              version/name="0.1.0"
-
-              package/unique_name="com.tuestudio.amyrhorror"
-
-              package/name="Amyr - Pasillo Oscuro"
-
-              package/signed=true
-
-              screen/orientation=0
-
-              screen/immersive_mode=true
-
-              permissions/vibrate=true
-
-              permissions/internet=false
-
-              '
-          scripts:
-            scripts/main.gd: "extends Node3D\n## Arranca el juego: carga los JSON, construye el escenario y gestiona el fin de partida.\n\nconst DATA_GAME := \"res://data/game.json\"\nconst DATA_SCENE := \"res://data/test_scenario.json\"\
-              \n\nvar game_cfg: Dictionary\nvar scene_cfg: Dictionary\nvar player\nvar amyr\nvar audio\nvar lights_flicker: Array = []\nvar game_over_layer: ColorRect\nvar is_over := false\n\nfunc _ready() -> void:\n\
-              \tDisplayServer.screen_set_orientation(DisplayServer.SCREEN_LANDSCAPE)\n\tgame_cfg = _load_json(DATA_GAME)\n\tscene_cfg = _load_json(DATA_SCENE)\n\t_setup_environment()\n\t_build_scenario(scene_cfg[\"\
-              scenario\"])\n\taudio = preload(\"res://scripts/audio_manager.gd\").new()\n\tadd_child(audio)\n\tplayer = preload(\"res://scripts/player.gd\").new()\n\tplayer.setup(game_cfg, scene_cfg[\"scenario\"\
-              ][\"spawn\"][\"player\"], audio)\n\tadd_child(player)\n\tamyr = preload(\"res://scripts/amyr.gd\").new()\n\tamyr.setup(scene_cfg[\"scenario\"], audio, player, self)\n\tadd_child(amyr)\n\t_setup_game_over_overlay()\n\
-              \taudio.play_loop(\"ambience_hallway_loop\")\n\nfunc _load_json(path: String) -> Dictionary:\n\tvar f := FileAccess.open(path, FileAccess.READ)\n\treturn JSON.parse_string(f.get_as_text())\n\nfunc _setup_environment()\
-              \ -> void:\n\tvar g: Dictionary = game_cfg[\"graphics\"]\n\tvar env := Environment.new()\n\tenv.background_mode = Environment.BG_COLOR\n\tenv.background_color = Color.BLACK\n\tenv.ambient_light_source\
-              \ = Environment.AMBIENT_SOURCE_COLOR\n\tenv.ambient_light_color = Color(0.05, 0.06, 0.06)\n\tenv.tonemap_mode = Environment.TONE_MAPPER_FILMIC\n\tenv.tonemap_exposure = float(g[\"exposure\"])\n\tenv.ssao_enabled\
-              \ = bool(g[\"ssao\"])\n\tenv.glow_enabled = bool(g[\"glow\"])\n\tenv.fog_enabled = bool(g[\"fog\"][\"enabled\"])\n\tenv.fog_density = float(g[\"fog\"][\"density\"])\n\tenv.fog_light_color = Color(g[\"\
-              fog\"][\"color\"])\n\tvar we := WorldEnvironment.new()\n\twe.environment = env\n\tadd_child(we)\n\nfunc _build_scenario(s: Dictionary) -> void:\n\tvar size: Array = s[\"size_meters\"]\n\tvar h: float\
-              \ = float(s[\"ceiling_height\"])\n\t# Suelo y techo\n\t_add_box(Vector3(0, -0.05, 0), Vector3(size[0], 0.1, size[1]), Color(0.18, 0.17, 0.15), true)\n\t_add_box(Vector3(0, h + 0.05, 0), Vector3(size[0],\
-              \ 0.1, size[1]), Color(0.12, 0.12, 0.12), true)\n\t# Muros perimetrales y divisiones\n\tfor w in s[\"walls\"]:\n\t\t_add_wall(w)\n\t# Luces\n\tfor l in s[\"lights\"]:\n\t\tvar light := OmniLight3D.new()\n\
-              \t\tlight.position = Vector3(l[\"pos\"][0], l[\"pos\"][1], l[\"pos\"][2])\n\t\tlight.light_color = Color(l[\"color\"])\n\t\tlight.light_energy = float(l[\"energy\"])\n\t\tlight.omni_range = 9.0\n\t\t\
-              light.shadow_enabled = true\n\t\tadd_child(light)\n\t\tif l.get(\"flicker\", false):\n\t\t\tlights_flicker.append({\"node\": light, \"base\": float(l[\"energy\"]), \"freq\": float(l.get(\"flicker_freq\"\
-              , 3.0))})\n\t# Puntos de salida y utilería simple\n\tfor p in s[\"props\"]:\n\t\t_add_box(Vector3(p[\"pos\"][0], 0.5, p[\"pos\"][2]), Vector3(0.9, 1.0, 0.6), Color(0.25, 0.22, 0.2), true)\n\nfunc _add_wall(w:\
-              \ Dictionary) -> void:\n\tvar a: Array = w[\"from\"]; var b: Array = w[\"to\"]\n\tvar t: float = float(w.get(\"thickness\", 0.3))\n\tvar start := Vector3(a[0], 0, a[2]); var end := Vector3(b[0], 0,\
-              \ b[2])\n\tvar length := start.distance_to(end)\n\tvar mid := (start + end) / 2.0\n\tvar box := Vector3(length if abs(end.x - start.x) > 0.01 else t, 3.0, length if abs(end.z - start.z) > 0.01 else\
-              \ t)\n\t_add_box(Vector3(mid.x, 1.5, mid.z), box, Color(0.42, 0.40, 0.34), true)\n\nfunc _add_box(pos: Vector3, size: Vector3, color: Color, collide: bool) -> void:\n\tvar mi := MeshInstance3D.new()\n\
-              \tvar mesh := BoxMesh.new()\n\tmesh.size = size\n\tmi.mesh = mesh\n\tvar mat := StandardMaterial3D.new()\n\tmat.albedo_color = color\n\tmat.roughness = 0.9\n\tmi.material_override = mat\n\tmi.position\
-              \ = pos\n\tif collide:\n\t\tvar body := StaticBody3D.new()\n\t\tvar cs := CollisionShape3D.new()\n\t\tvar shape := BoxShape3D.new()\n\t\tshape.size = size\n\t\tcs.shape = shape\n\t\tbody.add_child(cs)\n\
-              \t\tbody.add_child(mi)\n\t\tadd_child(body)\n\telse:\n\t\tadd_child(mi)\n\nfunc _process(delta: float) -> void:\n\tvar t := Time.get_ticks_msec() / 1000.0\n\tfor f in lights_flicker:\n\t\tvar n: float\
-              \ = sin(t * f[\"freq\"]) * sin(t * f[\"freq\"] * 0.37 + 1.3)\n\t\tf[\"node\"].light_energy = f[\"base\"] * (0.6 + 0.4 * (1.0 if n > -0.3 else 0.1))\n\nfunc trigger_game_over() -> void:\n\tif is_over:\n\
-              \t\treturn\n\tis_over = true\n\taudio.play_once(\"jumpscare_stinger\")\n\tgame_over_layer.visible = true\n\tvar tween := create_tween()\n\ttween.tween_property(game_over_layer, \"modulate:a\", 1.0,\
-              \ float(game_cfg[\"game_over\"][\"screen_fade_seconds\"]))\n\ttween.tween_interval(float(game_cfg[\"game_over\"][\"retry_delay_seconds\"]))\n\ttween.tween_callback(func(): get_tree().reload_current_scene())\n\
-              \nfunc _setup_game_over_overlay() -> void:\n\tvar layer := CanvasLayer.new()\n\tgame_over_layer = ColorRect.new()\n\tgame_over_layer.color = Color.BLACK\n\tgame_over_layer.set_anchors_preset(Control.PRESET_FULL_RECT)\n\
-              \tgame_over_layer.modulate.a = 0.0\n\tgame_over_layer.visible = false\n\tvar label := Label.new()\n\tlabel.text = \"AMYR TE ENCONTRÓ\"\n\tlabel.set_anchors_preset(Control.PRESET_CENTER)\n\tlabel.add_theme_font_size_override(\"\
-              font_size\", 48)\n\tgame_over_layer.add_child(label)\n\tlayer.add_child(game_over_layer)\n\tadd_child(layer)\n"
-            scripts/player.gd: "extends CharacterBody3D\n## Jugador en primera persona con linterna. Controles: joystick táctil (izquierda),\n## arrastrar a la derecha para mirar. En PC: WASD, ratón, Shift correr,\
-              \ F linterna.\n\nvar cfg: Dictionary\nvar audio\nvar camera: Camera3D\nvar flashlight: SpotLight3D\nvar battery: float\nvar stamina: float\nvar health: float\nvar flashlight_on := true\nvar yaw := 0.0\n\
-              var pitch := 0.0\nvar move_touch := -1\nvar look_touch := -1\nvar move_vec := Vector2.ZERO\nvar bob_t := 0.0\nvar step_timer := 0.0\nvar bob_amount := 0.035\nvar sound_radius := 0.0   # cuánto ruido\
-              \ haces (Amyr te oye si corres cerca)\n\nfunc setup(game_cfg: Dictionary, spawn: Dictionary, audio_mgr: Node) -> void:\n\tcfg = game_cfg[\"player\"]\n\taudio = audio_mgr\n\tposition = Vector3(spawn[\"\
-              pos\"][0], 0.0, spawn[\"pos\"][2])\n\tyaw = deg_to_rad(float(spawn[\"facing_deg\"]))\n\tbattery = float(cfg[\"flashlight\"][\"battery_seconds\"])\n\tstamina = float(cfg[\"stamina\"][\"max\"])\n\thealth\
-              \ = float(cfg[\"health\"][\"max\"])\n\tvar cam_cfg: Dictionary = game_cfg[\"camera\"]\n\tvar shape := CapsuleShape3D.new()\n\tshape.radius = 0.35; shape.height = 1.8\n\tvar cs := CollisionShape3D.new();\
-              \ cs.shape = shape; cs.position.y = 0.9\n\tadd_child(cs)\n\tbob_amount = float(cam_cfg[\"bob_amount\"])\n\tcamera = Camera3D.new()\n\tcamera.position.y = float(cfg[\"eye_height\"])\n\tcamera.near =\
-              \ float(cam_cfg[\"near\"]); camera.far = float(cam_cfg[\"far\"])\n\tcamera.fov = float(cam_cfg[\"fov\"])\n\tadd_child(camera)\n\tflashlight = SpotLight3D.new()\n\tvar fl: Dictionary = cfg[\"flashlight\"\
-              ]\n\tflashlight.light_energy = float(fl[\"intensity\"])\n\tflashlight.spot_range = float(fl[\"range\"])\n\tflashlight.spot_angle = float(fl[\"angle_deg\"])\n\tflashlight.light_color = Color(fl[\"color\"\
-              ])\n\tflashlight.shadow_enabled = true\n\tcamera.add_child(flashlight)\n\taudio.play_loop(fl[\"sounds\"][\"hum\"])\n\nfunc _ready() -> void:\n\tcamera.make_current()\n\nfunc _input(event: InputEvent)\
-              \ -> void:\n\t# Pantalla táctil: mitad izquierda = mover, mitad derecha = mirar\n\tif event is InputEventScreenTouch:\n\t\tvar half := get_viewport().get_visible_rect().size.x / 2.0\n\t\tif event.pressed:\n\
-              \t\t\tif event.position.x < half and move_touch == -1:\n\t\t\t\tmove_touch = event.index\n\t\t\telif event.position.x >= half and look_touch == -1:\n\t\t\t\tlook_touch = event.index\n\t\t\telse:\n\t\
-              \t\t\t_toggle_flashlight()\n\t\telse:\n\t\t\tif event.index == move_touch: move_touch = -1; move_vec = Vector2.ZERO\n\t\t\tif event.index == look_touch: look_touch = -1\n\telif event is InputEventScreenDrag:\n\
-              \t\tif event.index == move_touch:\n\t\t\tmove_vec = (event.position - _touch_origin_center()).normalized()\n\t\telif event.index == look_touch:\n\t\t\t_apply_look(event.relative)\n\telif event is InputEventMouseMotion\
-              \ and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:\n\t\t_apply_look(event.relative)\n\telif event is InputEventKey and event.pressed and event.keycode == KEY_F:\n\t\t_toggle_flashlight()\n\telif event\
-              \ is InputEventMouseButton and event.pressed:\n\t\tInput.mouse_mode = Input.MOUSE_MODE_CAPTURED\n\nfunc _touch_origin_center() -> Vector2:\n\tvar s := get_viewport().get_visible_rect().size\n\treturn\
-              \ Vector2(s.x * 0.2, s.y * 0.75)\n\nfunc _apply_look(rel: Vector2) -> void:\n\tvar sens := float(cfg[\"look_sensitivity\"]) * 0.02\n\tyaw -= rel.x * sens\n\tpitch = clamp(pitch - rel.y * sens, deg_to_rad(-80),\
-              \ deg_to_rad(80))\n\nfunc _toggle_flashlight() -> void:\n\tif battery <= 0.0:\n\t\treturn\n\tflashlight_on = not flashlight_on\n\tflashlight.visible = flashlight_on\n\taudio.play_once(cfg[\"flashlight\"\
-              ][\"sounds\"][\"on\"])\n\nfunc _physics_process(delta: float) -> void:\n\trotation.y = yaw\n\tcamera.rotation.x = pitch\n\n\tvar input := Vector2.ZERO\n\tif move_touch != -1:\n\t\tinput = move_vec\n\
-              \telse:\n\t\tinput = Input.get_vector(\"ui_left\", \"ui_right\", \"ui_up\", \"ui_down\")\n\tvar running := Input.is_key_pressed(KEY_SHIFT) and stamina > 0.0 and input.length() > 0.1\n\tvar speed :=\
-              \ float(cfg[\"run_speed\"]) if running else float(cfg[\"walk_speed\"])\n\tvar dir := (transform.basis * Vector3(input.x, 0, input.y)).normalized()\n\tvelocity.x = dir.x * speed\n\tvelocity.z = dir.z\
-              \ * speed\n\tvelocity.y -= 9.8 * delta\n\tmove_and_slide()\n\n\tstamina = clamp(stamina + (-float(cfg[\"stamina\"][\"drain_per_second\"]) if running else float(cfg[\"stamina\"][\"regen_per_second\"\
-              ])) * delta, 0, float(cfg[\"stamina\"][\"max\"]))\n\tsound_radius = 5.0 if running else (1.0 if input.length() > 0.1 else 0.0)\n\n\t# Batería de la linterna\n\tif flashlight_on:\n\t\tbattery -= delta\n\
-              \t\tif battery <= 0.0:\n\t\t\tbattery = 0.0\n\t\t\tflashlight_on = false\n\t\t\tflashlight.visible = false\n\tvar low := battery < 15.0 and flashlight_on\n\tflashlight.light_energy = float(cfg[\"flashlight\"\
-              ][\"intensity\"]) * (randf_range(0.3, 1.0) if low else 1.0)\n\n\t# Balanceo de cabeza y pasos\n\tvar moving := input.length() > 0.1 and is_on_floor()\n\tif moving:\n\t\tbob_t += delta * (9.0 if running\
-              \ else 6.5)\n\t\tstep_timer -= delta\n\t\tif step_timer <= 0.0:\n\t\t\taudio.play_once(\"footstep_%d\" % (randi() % 3 + 1))\n\t\t\tstep_timer = 0.42 if not running else 0.28\n\tcamera.position.y = float(cfg[\"\
-              eye_height\"]) + (sin(bob_t) * bob_amount if moving else 0.0)\n"
-            scripts/amyr.gd: "extends Node3D\n## Amyr: máquina de estados + IK de piernas y brazos (SkeletonIK3D, Godot 4.3).\n\nvar cfg: Dictionary\nvar scen: Dictionary\nvar audio\nvar player\nvar world\nvar model:\
-              \ Node3D\nvar skeleton: Skeleton3D\nvar state: String = \"idle\"\nvar state_t: float = 0.0\nvar wait_t: float = 10.0\nvar waypoints: Array = []\nvar wp_index: int = 0\nvar lost_sight_t: float = 0.0\n\
-              var freeze_t: float = 0.0\nvar growl: AudioStreamPlayer3D = null\nvar legs: Dictionary = {}\nvar arm_targets: Dictionary = {}\n\nfunc setup(scenario: Dictionary, audio_mgr, p, world_node) -> void:\n\
-              \tscen = scenario\n\taudio = audio_mgr\n\tplayer = p\n\tworld = world_node\n\tcfg = _load_json(\"res://data/amyr.json\")\n\twaypoints = scenario[\"waypoints\"]\n\tvar sp: Dictionary = scenario[\"spawn\"\
-              ][\"amyr\"]\n\tposition = Vector3(float(sp[\"pos\"][0]), 0.0, float(sp[\"pos\"][2]))\n\trotation.y = deg_to_rad(float(sp[\"facing_deg\"]))\n\nfunc _ready() -> void:\n\t_load_model()\n\t_setup_ik()\n\
-              \t_set_state(\"idle\")\n\nfunc _load_json(path: String) -> Dictionary:\n\tvar f := FileAccess.open(path, FileAccess.READ)\n\treturn JSON.parse_string(f.get_as_text())\n\nfunc _load_model() -> void:\n\
-              \tvar scene := load(\"res://assets/models/Amyr.fbx\") as PackedScene\n\tmodel = scene.instantiate() as Node3D\n\tmodel.scale = Vector3.ONE * float(cfg[\"model\"][\"scale\"])\n\tadd_child(model)\n\t\
-              skeleton = _find_skeleton(model)\n\tfor side in [\"left\", \"right\"]:\n\t\tvar target := Node3D.new()\n\t\ttarget.name = \"FootTarget_\" + side\n\t\tworld.add_child(target)\n\t\tvar rest: Vector3 =\
-              \ _foot_rest(side)\n\t\ttarget.global_position = rest\n\t\tlegs[side] = {\"target\": target, \"planted\": rest, \"swing_t\": 1.0, \"from\": rest, \"to\": rest}\n\nfunc _foot_rest(side: String) -> Vector3:\n\
-              \tvar lateral: Vector3 = global_transform.basis.x\n\tvar off: float = -0.12 if side == \"left\" else 0.12\n\treturn global_position + lateral * off\n\nfunc _find_skeleton(n: Node) -> Skeleton3D:\n\t\
-              if n is Skeleton3D:\n\t\treturn n\n\tfor c in n.get_children():\n\t\tvar s := _find_skeleton(c)\n\t\tif s:\n\t\t\treturn s\n\treturn null\n\nfunc _setup_ik() -> void:\n\tif skeleton == null:\n\t\tpush_warning(\"\
-              Amyr.fbx no tiene esqueleto; IK desactivado\")\n\t\treturn\n\tvar pairs: Array = [\n\t\t{\"chain\": cfg[\"skeleton\"][\"legs\"][\"left\"], \"target\": legs[\"left\"][\"target\"]},\n\t\t{\"chain\": cfg[\"\
-              skeleton\"][\"legs\"][\"right\"], \"target\": legs[\"right\"][\"target\"]},\n\t]\n\tfor side in [\"left\", \"right\"]:\n\t\tvar t := Node3D.new()\n\t\tt.name = \"HandTarget_\" + side\n\t\tworld.add_child(t)\n\
-              \t\tt.global_position = global_position + Vector3(0, 1.3, 0)\n\t\tarm_targets[side] = t\n\t\tpairs.append({\"chain\": cfg[\"skeleton\"][\"arms\"][side], \"target\": t})\n\t# SkeletonIK3D: una cadena\
-              \ raíz -> punta por instancia (disponible en Godot 4.3)\n\tfor p in pairs:\n\t\tvar ik := SkeletonIK3D.new()\n\t\tik.name = \"IK_\" + str(p[\"chain\"][\"root\"])\n\t\tik.root_bone = str(p[\"chain\"\
-              ][\"root\"])\n\t\tik.tip_bone = str(p[\"chain\"][\"end\"])\n\t\tskeleton.add_child(ik)\n\t\tik.target_node = ik.get_path_to(p[\"target\"])\n\t\tik.start()\n\nfunc _physics_process(delta: float) -> void:\n\
-              \tif player == null or legs.is_empty():\n\t\treturn\n\tstate_t += delta\n\tvar to_player: Vector3 = player.global_position - global_position\n\tto_player.y = 0.0\n\tvar dist: float = to_player.length()\n\
-              \tvar sees: bool = _can_see_player(to_player)\n\tif sees:\n\t\tlost_sight_t = 0.0\n\t\tif state in [\"idle\", \"wander\", \"search\"]:\n\t\t\t_set_state(\"hunt\")\n\telse:\n\t\tlost_sight_t += delta\n\
-              \n\tmatch state:\n\t\t\"idle\":\n\t\t\tif state_t > wait_t:\n\t\t\t\t_set_state(\"wander\")\n\t\t\"wander\":\n\t\t\t_walk_to_waypoint(delta, 1.2)\n\t\t\"hunt\":\n\t\t\t_face(to_player, delta)\n\t\t\t\
-              _move_toward(to_player.normalized(), 3.4, delta)\n\t\t\tif dist < 1.6:\n\t\t\t\t_set_state(\"attack\")\n\t\t\telif lost_sight_t > 6.0:\n\t\t\t\t_set_state(\"search\")\n\t\t\"search\":\n\t\t\trotation.y\
-              \ += delta * 0.8\n\t\t\tif sees:\n\t\t\t\t_set_state(\"hunt\")\n\t\t\telif state_t > wait_t:\n\t\t\t\t_set_state(\"wander\")\n\t\t\"attack\":\n\t\t\tfreeze_t += delta\n\t\t\t_face(to_player, delta)\n\
-              \t\t\tif freeze_t > float(cfg[\"states\"][\"attack\"][\"freeze_seconds\"]):\n\t\t\t\t_arms_reach(to_player)\n\t\t\t\tif dist < 0.9:\n\t\t\t\t\tworld.trigger_game_over()\n\t\t\t\t\tset_physics_process(false)\n\
-              \t\t\t\t\treturn\n\t_update_legs(delta)\n\nfunc _set_state(s: String) -> void:\n\tstate = s\n\tstate_t = 0.0\n\tfreeze_t = 0.0\n\tif s == \"idle\":\n\t\twait_t = randf_range(8.0, 15.0)\n\telif s ==\
-              \ \"search\":\n\t\twait_t = randf_range(10.0, 18.0)\n\tif s == \"attack\":\n\t\taudio.play_at(\"amyr_attack_screech\", global_position, world)\n\tif s == \"hunt\":\n\t\tgrowl = AudioStreamPlayer3D.new()\n\
-              \t\tgrowl.stream = audio.streams[\"amyr_growl\"]\n\t\tgrowl.max_distance = 30.0\n\t\tadd_child(growl)\n\t\tgrowl.play()\n\telif growl != null:\n\t\tgrowl.queue_free()\n\t\tgrowl = null\n\nfunc _can_see_player(to_player:\
-              \ Vector3) -> bool:\n\tvar v: Dictionary = cfg[\"vision\"]\n\tvar d: float = to_player.length()\n\tif d > float(v[\"range\"]):\n\t\treturn false\n\tvar fwd: Vector3 = -global_transform.basis.z\n\tvar\
-              \ ang: float = rad_to_deg(acos(clampf(fwd.dot(to_player.normalized()), -1.0, 1.0)))\n\tvar fov_ok: bool = ang < float(v[\"fov_deg\"]) / 2.0\n\tvar lit: bool = bool(player.flashlight_on)\n\tvar in_flashlight:\
-              \ bool = lit and d < float(v[\"flashlight_detect_range\"]) and ang < 20.0\n\tvar heard: bool = d < float(v[\"hearing_radius\"]) and float(player.sound_radius) > 0.0\n\treturn (fov_ok and in_flashlight)\
-              \ or heard\n\nfunc _walk_to_waypoint(delta: float, speed: float) -> void:\n\tif waypoints.is_empty():\n\t\treturn\n\tvar wp: Array = waypoints[wp_index]\n\tvar goal := Vector3(float(wp[0]), 0.0, float(wp[2]))\n\
-              \tvar dir: Vector3 = goal - global_position\n\tdir.y = 0.0\n\tif dir.length() < 0.5:\n\t\twp_index = (wp_index + 1) % waypoints.size()\n\t\t_set_state(\"idle\")\n\t\treturn\n\t_face(dir, delta)\n\t\
-              _move_toward(dir.normalized(), speed, delta)\n\nfunc _face(dir: Vector3, delta: float) -> void:\n\tvar target_yaw: float = atan2(-dir.x, -dir.z)\n\trotation.y = lerp_angle(rotation.y, target_yaw, clampf(delta\
-              \ * 6.0, 0.0, 1.0))\n\nfunc _move_toward(dir: Vector3, speed: float, delta: float) -> void:\n\tglobal_position += dir * speed * delta\n\tglobal_position.y = 0.0\n\n# IK de piernas: paso alternado; el\
-              \ pie se queda plantado mientras Amyr está quieto\nfunc _update_legs(delta: float) -> void:\n\tvar ik_cfg: Dictionary = cfg[\"ik_legs\"]\n\tvar moving: bool = state in [\"wander\", \"hunt\", \"search\"\
-              ]\n\tvar stride: float = float(ik_cfg[\"step_length\"])\n\tvar dur: float = float(ik_cfg[\"run_step_duration\"]) if state == \"hunt\" else float(ik_cfg[\"step_duration\"])\n\tvar forward: Vector3 =\
-              \ -global_transform.basis.z\n\tvar lateral: Vector3 = global_transform.basis.x\n\tvar side_offset := {\"left\": -0.12, \"right\": 0.12}\n\tfor side in legs:\n\t\tvar leg: Dictionary = legs[side]\n\t\
-              \tvar rest: Vector3 = global_position + lateral * float(side_offset[side])\n\t\tif float(leg[\"swing_t\"]) >= 1.0:\n\t\t\tvar desired: Vector3 = rest + forward * stride * 0.5\n\t\t\tvar planted: Vector3\
-              \ = leg[\"planted\"]\n\t\t\tif moving and planted.distance_to(desired) > stride * 0.5:\n\t\t\t\tleg[\"from\"] = planted\n\t\t\t\tleg[\"to\"] = desired\n\t\t\t\tleg[\"swing_t\"] = 0.0\n\t\t\tleg[\"target\"\
-              ].global_position = planted\n\t\telse:\n\t\t\tvar t: float = minf(1.0, float(leg[\"swing_t\"]) + delta / dur)\n\t\t\tleg[\"swing_t\"] = t\n\t\t\tvar from_p: Vector3 = leg[\"from\"]\n\t\t\tvar to_p:\
-              \ Vector3 = leg[\"to\"]\n\t\t\tvar p: Vector3 = from_p.lerp(to_p, t)\n\t\t\tp.y = float(ik_cfg[\"step_height\"]) * sin(t * PI)\n\t\t\tleg[\"target\"].global_position = p\n\t\t\tif t >= 1.0:\n\t\t\t\t\
-              leg[\"planted\"] = to_p\n\t\t\t\taudio.play_at(\"amyr_leg_step\", to_p, world)\n\n# IK de brazos: se estiran hacia el jugador al atacar\nfunc _arms_reach(to_player: Vector3) -> void:\n\tvar reach: float\
-              \ = float(cfg[\"ik_arms\"][\"attack_reach\"])\n\tvar dir: Vector3 = to_player.normalized()\n\tvar chest: Vector3 = global_position + Vector3(0, 1.3, 0)\n\tfor side in arm_targets:\n\t\tvar offset: float\
-              \ = 0.25 if side == \"left\" else -0.25\n\t\tvar goal: Vector3 = chest + dir * reach + global_transform.basis.x * offset\n\t\tvar t: Node3D = arm_targets[side]\n\t\tt.global_position = t.global_position.lerp(goal,\
-              \ 0.25)\n"
-            scripts/audio_manager.gd: "extends Node\n## Carga config/audio.yaml (vía data/audio.json) y reproduce cada evento de sonido.\n\nvar defs: Dictionary = {}\nvar streams: Dictionary = {}\nvar players_2d:\
-              \ Dictionary = {}\n\nfunc _ready() -> void:\n\tvar f := FileAccess.open(\"res://data/audio.json\", FileAccess.READ)\n\tvar cfg: Dictionary = JSON.parse_string(f.get_as_text())\n\tdefs = cfg[\"sounds\"\
-              ]\n\tfor id in defs:\n\t\tvar stream := load(\"res://\" + defs[id][\"file\"]) as AudioStreamWAV\n\t\tif stream == null:\n\t\t\tpush_warning(\"No se pudo cargar sonido: \" + id)\n\t\t\tcontinue\n\t\t\
-              if defs[id].get(\"loop\", false):\n\t\t\tstream.loop_mode = AudioStreamWAV.LOOP_FORWARD\n\t\t\tstream.loop_end = stream.data.size() / 2\n\t\tstreams[id] = stream\n\nfunc _make_player(id: String) ->\
-              \ AudioStreamPlayer:\n\tvar p := AudioStreamPlayer.new()\n\tp.stream = streams[id]\n\tp.volume_db = float(defs[id].get(\"volume_db\", 0))\n\tadd_child(p)\n\treturn p\n\nfunc play_once(id: String) ->\
-              \ void:\n\tif not streams.has(id):\n\t\treturn\n\tvar p := _make_player(id)\n\tp.finished.connect(p.queue_free)\n\tp.play()\n\nfunc play_loop(id: String) -> void:\n\tif not streams.has(id) or players_2d.has(id):\n\
-              \t\treturn\n\tvar p := _make_player(id)\n\tplayers_2d[id] = p\n\tp.play()\n\nfunc stop(id: String) -> void:\n\tif players_2d.has(id):\n\t\tplayers_2d[id].queue_free()\n\t\tplayers_2d.erase(id)\n\n##\
-              \ Sonido en posición 3D (pasos, gruñidos, chirridos de Amyr)\nfunc play_at(id: String, pos: Vector3, parent: Node3D) -> void:\n\tif not streams.has(id):\n\t\treturn\n\tvar p := AudioStreamPlayer3D.new()\n\
-              \tp.stream = streams[id]\n\tp.volume_db = float(defs[id].get(\"volume_db\", 0))\n\tp.max_distance = float(defs[id].get(\"max_distance\", 30))\n\tp.unit_size = 4.0\n\tp.pitch_scale = 1.0 + randf_range(-0.05,\
-              \ 0.05)\n\tparent.add_child(p)\n\tp.global_position = pos\n\tp.finished.connect(p.queue_free)\n\tp.play()\n"
-          AMYR_GAME_YAML_EOF
-
-          mkdir -p "$(dirname tools/build_project.py)"
-          cat > tools/build_project.py << 'AMYR_BUILD_PY_EOF'
-          """Genera el proyecto Godot a partir de game.yaml (el único archivo fuente).
-          - Escribe los scripts .gd, project.godot, escena y export_presets.cfg.
-          - Escribe data/*.json con la configuración que leen los scripts.
-          Uso: python tools/build_project.py"""
-          import json, os, yaml
-
-          ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-
-          # Qué claves de game.yaml van a cada JSON que leen los scripts
-          SPLIT = {
-              "game.json": ["game", "graphics", "player", "camera", "game_over"],
-              "amyr.json": ["model", "skeleton", "ik_legs", "ik_arms", "states", "vision"],
-              "audio.json": ["bus", "sounds"],
-              "test_scenario.json": ["scenario"],
-          }
-
-          with open(os.path.join(ROOT, "game.yaml"), encoding="utf-8") as f:
-              doc = yaml.safe_load(f)
-
-          os.makedirs(os.path.join(ROOT, "data"), exist_ok=True)
-          for out, keys in SPLIT.items():
-              data = {k: doc[k] for k in keys if k in doc}
-              with open(os.path.join(ROOT, "data", out), "w", encoding="utf-8") as f:
-                  json.dump(data, f, ensure_ascii=False, indent=2)
-              print("data/" + out)
-
-          for group in ("files", "scripts"):
-              for rel, content in doc[group].items():
-                  path = os.path.join(ROOT, rel)
-                  os.makedirs(os.path.dirname(path), exist_ok=True)
-                  with open(path, "w", encoding="utf-8", newline="\n") as f:
-                      f.write(content)
-                  print(rel)
-          AMYR_BUILD_PY_EOF
-
-          mkdir -p "$(dirname tools/synth_audio.py)"
-          cat > tools/synth_audio.py << 'AMYR_SYNTH_PY_EOF'
-          """Genera los efectos de sonido del juego (WAV mono 22050 Hz, 16 bits).
-          Todo es sintetizado: no requiere archivos externos ni licencias."""
-          import wave, os
-          import numpy as np
-
-          SR = 22050
-          OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "audio")
-          rng = np.random.default_rng(7)
-
-          def t(sec): return np.linspace(0, sec, int(SR * sec), endpoint=False)
-          def lowpass(x, k=12): return np.convolve(x, np.ones(k) / k, mode="same")
-          def env(n, attack=0.01, decay=5.0):
-              tt = np.linspace(0, n / SR, n, endpoint=False)
-              return np.clip(tt / attack, 0, 1) * np.exp(-decay * tt)
-          def fm(freq, idx, sec, ratio=2.0):
-              tt = t(sec)
-              return np.sin(2 * np.pi * freq * tt + idx * np.sin(2 * np.pi * freq * ratio * tt))
-          def norm(x, peak=0.9):
-              return x / (np.max(np.abs(x)) or 1.0) * peak
-          def loop_fade(x, ms=30):
-              n = int(SR * ms / 1000); w = np.linspace(0, 1, n)
-              x[:n] *= w; x[-n:] *= w[::-1]
-              return x
-          def save(name, x):
-              x = np.clip(x, -1, 1)
-              with wave.open(os.path.join(OUT, name + ".wav"), "wb") as f:
-                  f.setnchannels(1); f.setsampwidth(2); f.setframerate(SR)
-                  f.writeframes((x * 32767).astype(np.int16).tobytes())
-              print(f"{name}.wav  {len(x)/SR:.2f}s")
-
-          os.makedirs(OUT, exist_ok=True)
-
-          for i in range(3):
-              n = int(SR * 0.22)
-              s = lowpass(rng.normal(0, 1, n), 18) * env(n, 0.005, 14 + i * 2)
-              s += 0.25 * np.sin(2 * np.pi * (70 + 15 * i) * t(0.22)) * env(n, 0.003, 18)
-              save(f"footstep_{i+1}", norm(s, 0.7))
-
-          n = int(SR * 0.06)
-          save("flashlight_click", norm(lowpass(rng.normal(0, 1, n), 3) * env(n, 0.001, 60), 0.6))
-
-          d = t(2.0)
-          hum = 0.4 * np.sin(2 * np.pi * 60 * d) + 0.2 * np.sin(2 * np.pi * 120 * d)
-          hum += 0.15 * lowpass(rng.normal(0, 1, len(d)), 6)
-          save("flashlight_hum_loop", loop_fade(norm(hum, 0.35)))
-
-          d = t(10.0)
-          drone = 0.5 * np.sin(2 * np.pi * 42 * d) + 0.3 * np.sin(2 * np.pi * 63.5 * d)
-          wind = lowpass(rng.normal(0, 1, len(d)), 40) * (0.5 + 0.5 * np.sin(2 * np.pi * 0.12 * d))
-          save("ambience_hallway_loop", loop_fade(norm(drone * 0.4 + wind * 0.6, 0.4), 200))
-
-          hb = np.zeros(int(SR * 1.2))
-          for start in (0.0, 0.28):
-              k = int(SR * start); seg = int(SR * 0.16)
-              hb[k:k+seg] += np.sin(2 * np.pi * 55 * t(0.16)) * env(seg, 0.01, 18)
-          save("heartbeat_loop", loop_fade(norm(hb, 0.8), 10))
-
-          n = int(SR * 2.4)
-          br = lowpass(rng.normal(0, 1, n), 9) * np.sin(np.pi * np.linspace(0, 1, n)) ** 2
-          save("breathing_scared", norm(br, 0.45))
-
-          n = int(SR * 3.0)
-          cr = fm(310, 9, 3.0, 3.1) * (0.5 + 0.5 * np.sin(2 * np.pi * 2.3 * t(3.0)))
-          cr *= 0.2 + 0.8 * (rng.random(n) > 0.9992)
-          save("amyr_servo_creak", norm(cr, 0.55))
-
-          n = int(SR * 1.8)
-          gr = fm(95, 6, 1.8, 1.5) + 0.4 * lowpass(rng.normal(0, 1, n), 14)
-          gr *= np.clip(np.linspace(0, 1, n) * 4, 0, 1) * (1 - np.linspace(0, 1, n) * 0.6)
-          save("amyr_growl", norm(gr, 0.85))
-
-          n = int(SR * 1.2)
-          sc = np.tanh(3.5 * fm(1450, 14, 1.2, 2.37)) * env(n, 0.02, 2.5)
-          sc += 0.3 * lowpass(rng.normal(0, 1, n), 4) * env(n, 0.005, 4)
-          save("amyr_attack_screech", norm(sc, 0.95))
-
-          n = int(SR * 1.5)
-          js = np.tanh(4 * fm(60, 3, 1.5)) * env(n, 0.003, 3.5) + 0.8 * lowpass(rng.normal(0, 1, n), 5) * env(n, 0.002, 6)
-          save("jumpscare_stinger", norm(js, 1.0))
-
-          n = int(SR * 1.0)
-          bang = (np.sin(2 * np.pi * 180 * t(1.0)) + 0.5 * np.sin(2 * np.pi * 277 * t(1.0))) * env(n, 0.002, 7)
-          save("distant_clang", norm(bang, 0.6))
-
-          n = int(SR * 0.15)
-          step = lowpass(rng.normal(0, 1, n), 10) * env(n, 0.002, 25) + 0.3 * np.sin(2 * np.pi * 400 * t(0.15)) * env(n, 0.001, 40)
-          save("amyr_leg_step", norm(step, 0.5))
-          AMYR_SYNTH_PY_EOF
-
-      - name: Instalar Python y dependencias
-        run: pip install pyyaml numpy
-
-      - name: Generar sonidos y proyecto Godot
-        run: |
-          python tools/synth_audio.py
-          python tools/build_project.py
-
-      - name: Instalar Godot 4.3 y plantillas de exportación
-        run: |
-          BASE=https://github.com/godotengine/godot/releases/download/4.3-stable
-          curl -fL -o godot.zip "$BASE/Godot_v4.3-stable_linux.x86_64.zip"
-          unzip -q godot.zip && mv Godot_v4.3-stable_linux.x86_64 godot && chmod +x godot
-          curl -fL -o templates.tpz "$BASE/Godot_v4.3-stable_export_templates.tpz"
-          mkdir -p ~/.local/share/godot/export_templates/4.3.stable
-          unzip -q -j templates.tpz -d ~/.local/share/godot/export_templates/4.3.stable
-
-      - name: Instalar Java y Android SDK
+      - name: Instalar Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - name: Instalar Android SDK (licencias aceptadas automáticamente)
-        run: |
-          ANDROID_HOME="$HOME/android-sdk"
-          mkdir -p "$ANDROID_HOME/cmdline-tools"
-          curl -fL -o cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q cmdtools.zip -d "$ANDROID_HOME/cmdline-tools"
-          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_HOME"
-          yes | $SDKMANAGER --licenses > /dev/null 2>&1 || true
-          $SDKMANAGER "platform-tools" "build-tools;34.0.0" "platforms;android-34" \
-            "cmdline-tools;latest" "cmake;3.10.2.4988404" "ndk;23.2.8568313"
-          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
-          echo "GODOT_ANDROID_SDK_PATH=$ANDROID_HOME" >> "$GITHUB_ENV"
-          echo "GODOT_JAVA_SDK_PATH=$JAVA_HOME" >> "$GITHUB_ENV"
 
-      - name: Crear keystore de depuración
+      - name: Instalar Android SDK
         run: |
-          keytool -genkeypair -v -keystore $HOME/debug.keystore -storepass android -keypass android \
-            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
 
-      - name: Configurar Godot para exportar Android
+      - name: Descargar Godot 4.3
+        run: |
+          BASE=https://github.com/godotengine/godot/releases/download/4.3-stable
+          wget -q $BASE/Godot_v4.3-stable_linux.x86_64.zip -O godot.zip
+          wget -q $BASE/Godot_v4.3-stable_export_templates.tpz -O templates.tpz
+          unzip -q godot.zip -d "$HOME/godot"
+          sudo mv "$HOME/godot/Godot_v4.3-stable_linux.x86_64" /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+          TPL="$HOME/.local/share/godot/export_templates/4.3.stable"
+          mkdir -p "$TPL"
+          unzip -q templates.tpz -d tpl_tmp
+          mv tpl_tmp/templates/* "$TPL/"
+
+      - name: Configurar Godot
         run: |
           mkdir -p "$HOME/.config/godot"
-          cat > "$HOME/.config/godot/editor_settings-4.tres" << EOF_SETTINGS
+          cat > "$HOME/.config/godot/editor_settings-4.3.tres" << EOF
           [gd_resource type="EditorSettings" format=3]
 
           [resource]
-          export/android/android_sdk_path = "$HOME/android-sdk"
+          export/android/android_sdk_path = "$ANDROID_HOME"
           export/android/java_sdk_path = "$JAVA_HOME"
-          export/android/debug_keystore = "$HOME/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
-          EOF_SETTINGS
-          cat "$HOME/.config/godot/editor_settings-4.tres"
+          EOF
 
-      - name: Importar recursos y exportar APK
-        env:
-          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /home/runner/debug.keystore
-          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
-          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+      - name: Crear keystore de depuración
+        run: |
+          keytool -genkeypair -v -keystore "$RUNNER_TEMP/debug.keystore" -storepass android \
+            -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$RUNNER_TEMP/debug.keystore" >> $GITHUB_ENV
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> $GITHUB_ENV
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> $GITHUB_ENV
+
+      - name: Generar proyecto Godot
+        run: |
+          mkdir -p scripts scenes
+
+          cat > project.godot << 'EOF'
+          config_version=5
+
+          [application]
+          config/name="Amyr: El Pasillo"
+          run/main_scene="res://scenes/Main.tscn"
+          config/features=PackedStringArray("4.3", "Mobile")
+
+          [display]
+          window/size/viewport_width=1280
+          window/size/viewport_height=720
+          window/handheld/orientation=0
+          window/stretch/mode="canvas_items"
+          window/stretch/aspect="expand"
+
+          [input_devices]
+          pointing/emulate_mouse_from_touch=false
+          pointing/emulate_touch_from_mouse=false
+
+          [rendering]
+          renderer/rendering_method="mobile"
+          EOF
+
+          cat > export_presets.cfg << 'EOF'
+          [preset.0]
+
+          name="Android"
+          platform="Android"
+          runnable=true
+          dedicated_server=false
+          export_filter="all_resources"
+          include_filter=""
+          exclude_filter=""
+          export_path="build/Amyr.apk"
+          encryption_include_filters=""
+          encryption_exclude_filters=""
+          encrypt_pck=false
+          encrypt_directory=false
+
+          [preset.0.options]
+
+          custom_template/debug=""
+          custom_template/release=""
+          gradle_build/use_gradle_build=false
+          architectures/armeabi-v7a=false
+          architectures/arm64-v8a=true
+          architectures/x86=false
+          architectures/x86_64=false
+          version/code=1
+          version/name="1.0"
+          package/unique_name="com.amyr.horror"
+          package/name="Amyr"
+          package/signed=true
+          package/retain_data_on_uninstall=false
+          keystore/debug=""
+          keystore/debug_user=""
+          keystore/debug_password=""
+          keystore/release=""
+          keystore/release_user=""
+          keystore/release_password=""
+          EOF
+
+          cat > scenes/Main.tscn << 'EOF'
+          [gd_scene format=3]
+
+          [ext_resource type="Script" path="res://scripts/game.gd" id="1"]
+
+          [node name="Main" type="Node3D"]
+          script = ExtResource("1")
+          EOF
+
+          cat > scripts/game.gd << 'EOF'
+          extends Node3D
+
+          const RATE := 22050
+          const GRID := 2.5
+          const WALL_H := 3.0
+          const MAZE_W := 11
+          const MAZE_H := 11
+          const KEYS_NEEDED := 3
+          const HAND_POS := Vector3(0.26, -0.24, -0.42)
+          const MODEL_YAW_OFFSET := PI   # pon 0.0 si Amyr mira al lado contrario
+          const VIG_SHADER := """
+          shader_type canvas_item;
+          uniform float strength = 0.75;
+          float rnd(vec2 p) {
+              return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+          }
+          void fragment() {
+              float v = smoothstep(0.25, 0.85, length(UV - vec2(0.5)) * 1.5);
+              float g = rnd(UV * 900.0 + vec2(fract(TIME) * 37.0, 0.0)) * 0.08;
+              COLOR = vec4(0.0, 0.0, 0.0, clamp(v * strength + g, 0.0, 1.0));
+          }
+          """
+
+          var rng := RandomNumberGenerator.new()
+          var maze: Array = []
+          var last_cell := Vector2i(1, 1)
+          var exit_cell := Vector2i.ZERO
+          var key_cells: Array = []
+          var key_nodes: Array = []
+          var keys_found := 0
+          var exit_mat: StandardMaterial3D
+          var exit_light: OmniLight3D
+          var lights: Array = []
+
+          var player: CharacterBody3D
+          var cam: Camera3D
+          var hand: Node3D
+          var flashlight: SpotLight3D
+          var lamp_mat: StandardMaterial3D
+          var battery := 100.0
+          var flash_on := true
+          var yaw := 0.0
+          var pitch := 0.0
+          var move_dir := Vector2.ZERO
+          var walk_amt := 0.0
+          var step_timer := 0.0
+          var touch_move_id := -1
+          var touch_move_origin := Vector2.ZERO
+          var touch_look_id := -1
+          var touch_look_moved := 0.0
+
+          var monster: CharacterBody3D
+          var model_root: Node3D
+          var model_base_scale := Vector3.ONE
+          var monster_target := Vector3.ZERO
+          var monster_path_timer := 0.0
+          var closeness := 0.0
+
+          var state := "play"
+          var state_timer := 0.0
+          var shake := 0.0
+          var time := 0.0
+          var heart_timer := 0.0
+          var creak_timer := 6.0
+          var msg_timer := 0.0
+
+          var drone: AudioStreamPlayer
+          var heart_sfx: AudioStreamPlayer
+          var scare_sfx: AudioStreamPlayer
+          var step_sfx: AudioStreamPlayer
+          var fx_sfx: AudioStreamPlayer
+          var s_chime: AudioStreamWAV
+          var s_creak: AudioStreamWAV
+          var s_step: AudioStreamWAV
+
+          var vig_mat: ShaderMaterial
+          var hud: Label
+          var msg: Label
+          var flash_rect: ColorRect
+
+          func _ready() -> void:
+              rng.randomize()
+              _make_sounds()
+              _setup_environment()
+              _generate_maze()
+              _build_world()
+              _build_player()
+              _build_monster()
+              _build_ui()
+              drone.play()
+              if OS.has_feature("pc"):
+                  Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+              _show_msg("Encuentra las 3 llaves doradas y escapa.", 4.0)
+
+          # ---------- AUDIO PROCEDURAL ----------
+          func _wav(s: PackedFloat32Array, loop := false) -> AudioStreamWAV:
+              var data := PackedByteArray()
+              data.resize(s.size() * 2)
+              for i in s.size():
+                  data.encode_s16(i * 2, int(clampf(s[i], -1.0, 1.0) * 32767.0))
+              var w := AudioStreamWAV.new()
+              w.format = AudioStreamWAV.FORMAT_16_BITS
+              w.mix_rate = RATE
+              w.stereo = false
+              w.data = data
+              if loop:
+                  w.loop_mode = AudioStreamWAV.LOOP_FORWARD
+                  w.loop_begin = 0
+                  w.loop_end = s.size()
+              return w
+
+          func _make_sounds() -> void:
+              drone = AudioStreamPlayer.new(); add_child(drone)
+              heart_sfx = AudioStreamPlayer.new(); add_child(heart_sfx)
+              scare_sfx = AudioStreamPlayer.new(); add_child(scare_sfx)
+              step_sfx = AudioStreamPlayer.new(); add_child(step_sfx)
+              fx_sfx = AudioStreamPlayer.new(); add_child(fx_sfx)
+              drone.stream = _make_drone()
+              drone.volume_db = -14.0
+              heart_sfx.stream = _make_heart()
+              heart_sfx.volume_db = -2.0
+              scare_sfx.stream = _make_scream()
+              scare_sfx.volume_db = 6.0
+              s_step = _make_step()
+              s_chime = _make_chime()
+              s_creak = _make_creak()
+              step_sfx.stream = s_step
+              step_sfx.volume_db = -6.0
+
+          func _make_drone() -> AudioStreamWAV:
+              var n := RATE * 4
+              var s := PackedFloat32Array()
+              s.resize(n)
+              for i in n:
+                  var t := float(i) / RATE
+                  var v := sin(TAU * 55.0 * t) * 0.18 + sin(TAU * 58.5 * t) * 0.14 + sin(TAU * 110.0 * t) * 0.05
+                  v *= 0.6 + 0.4 * sin(TAU * 0.25 * t)
+                  s[i] = v
+              return _wav(s, true)
+
+          func _make_heart() -> AudioStreamWAV:
+              var n := int(RATE * 0.9)
+              var s := PackedFloat32Array()
+              s.resize(n)
+              for i in n:
+                  var t := float(i) / RATE
+                  var v := 0.0
+                  for off in [0.0, 0.3]:
+                      var dt: float = t - off
+                      if dt >= 0.0 and dt < 0.3:
+                          v += sin(TAU * 58.0 * dt) * exp(-dt * 20.0)
+                  s[i] = v * 0.9
+              return _wav(s)
+
+          func _make_scream() -> AudioStreamWAV:
+              var n := int(RATE * 1.6)
+              var s := PackedFloat32Array()
+              s.resize(n)
+              var ph := 0.0
+              for i in n:
+                  var t := float(i) / RATE
+                  var u := t / 1.6
+                  var f := lerpf(280.0, 1100.0, u) + sin(t * 55.0) * 70.0
+                  ph += TAU * f / RATE
+                  var env := minf(1.0, t * 30.0) * (1.0 - u)
+                  var v := sin(ph) * 0.6 + sin(ph * 2.01) * 0.3 + (randf() * 2.0 - 1.0) * 0.4
+                  s[i] = clampf(v * 2.2, -1.0, 1.0) * env
+              return _wav(s)
+
+          func _make_step() -> AudioStreamWAV:
+              var n := int(RATE * 0.09)
+              var s := PackedFloat32Array()
+              s.resize(n)
+              for i in n:
+                  var t := float(i) / n
+                  s[i] = (randf() * 2.0 - 1.0) * pow(1.0 - t, 3.0) * 0.8
+              return _wav(s)
+
+          func _make_chime() -> AudioStreamWAV:
+              var n := int(RATE * 0.9)
+              var s := PackedFloat32Array()
+              s.resize(n)
+              for i in n:
+                  var t := float(i) / RATE
+                  var v := (sin(TAU * 880.0 * t) * 0.5 + sin(TAU * 1320.0 * t) * 0.3) * exp(-t * 4.0)
+                  s[i] = v * 0.7
+              return _wav(s)
+
+          func _make_creak() -> AudioStreamWAV:
+              var n := int(RATE * 1.6)
+              var s := PackedFloat32Array()
+              s.resize(n)
+              var ph := 0.0
+              for i in n:
+                  var t := float(i) / RATE
+                  var f := 70.0 + 60.0 * sin(t * 3.0) + 30.0 * t
+                  ph += TAU * f / RATE
+                  var env := sin(PI * t / 1.6)
+                  s[i] = (sin(ph) * 0.4 + (randf() * 2.0 - 1.0) * 0.25) * env * 0.8
+              return _wav(s)
+
+          # ---------- ENTORNO ----------
+          func _setup_environment() -> void:
+              var we := WorldEnvironment.new()
+              var env := Environment.new()
+              env.background_mode = Environment.BG_COLOR
+              env.background_color = Color(0.01, 0.01, 0.015)
+              env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+              env.ambient_light_color = Color(0.08, 0.08, 0.1)
+              env.ambient_light_energy = 0.6
+              env.fog_enabled = true
+              env.fog_light_color = Color(0.03, 0.03, 0.04)
+              env.fog_density = 0.045
+              env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+              env.adjustment_enabled = true
+              env.adjustment_contrast = 1.15
+              env.adjustment_saturation = 0.55
+              we.environment = env
+              add_child(we)
+
+          # ---------- LABERINTO ----------
+          func _generate_maze() -> void:
+              var gw := MAZE_W * 2 + 1
+              var gh := MAZE_H * 2 + 1
+              maze = []
+              for y in gh:
+                  var row: Array = []
+                  for x in gw:
+                      row.append(true)
+                  maze.append(row)
+              var visited := {}
+              var stack: Array[Vector2i] = [Vector2i(1, 1)]
+              maze[1][1] = false
+              visited[Vector2i(1, 1)] = true
+              while stack.size() > 0:
+                  var cur: Vector2i = stack.back()
+                  var dirs := [Vector2i(2, 0), Vector2i(-2, 0), Vector2i(0, 2), Vector2i(0, -2)]
+                  dirs.shuffle()
+                  var moved := false
+                  for d in dirs:
+                      var nxt: Vector2i = cur + d
+                      if nxt.x < 1 or nxt.y < 1 or nxt.x >= gw - 1 or nxt.y >= gh - 1:
+                          continue
+                      if visited.has(nxt):
+                          continue
+                      var between: Vector2i = cur + d / 2
+                      maze[between.y][between.x] = false
+                      maze[nxt.y][nxt.x] = false
+                      visited[nxt] = true
+                      stack.append(nxt)
+                      last_cell = nxt
+                      moved = true
+                      break
+                  if not moved:
+                      stack.pop_back()
+
+              exit_cell = last_cell
+              var open := _open_cells()
+              open.shuffle()
+              key_cells = []
+              for c in open:
+                  if key_cells.size() >= KEYS_NEEDED:
+                      break
+                  if _dist(c, Vector2i(1, 1)) > 4.0 and _dist(c, exit_cell) > 2.0:
+                      key_cells.append(c)
+
+          func _open_cells() -> Array:
+              var out: Array = []
+              for y in maze.size():
+                  for x in maze[y].size():
+                      if not maze[y][x]:
+                          out.append(Vector2i(x, y))
+              return out
+
+          func _is_open(c: Vector2i) -> bool:
+              return c.y >= 0 and c.y < maze.size() and c.x >= 0 and c.x < maze[0].size() and not maze[c.y][c.x]
+
+          func _cell_world(c: Vector2i) -> Vector3:
+              return Vector3(c.x * GRID, 0.0, c.y * GRID)
+
+          func _world_cell(p: Vector3) -> Vector2i:
+              return Vector2i(roundi(p.x / GRID), roundi(p.z / GRID))
+
+          func _dist(a: Vector2i, b: Vector2i) -> float:
+              return Vector2(a).distance_to(Vector2(b))
+
+          func _flat_dist(a: Vector3, b: Vector3) -> float:
+              return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
+
+          func _build_world() -> void:
+              var gw: int = maze[0].size()
+              var gh: int = maze.size()
+              var span := maxf(float(gw), float(gh)) * GRID * 2.0
+              var center := Vector3((gw - 1) * GRID * 0.5, 0.0, (gh - 1) * GRID * 0.5)
+
+              _add_block(Vector3(center.x, -0.1, center.z), Vector3(span, 0.2, span), _mat(Color(0.12, 0.1, 0.08), 0.95))
+
+              var ceil_mi := MeshInstance3D.new()
+              var pm := PlaneMesh.new()
+              pm.size = Vector2(span, span)
+              ceil_mi.mesh = pm
+              ceil_mi.material_override = _mat(Color(0.05, 0.05, 0.06), 1.0)
+              ceil_mi.position = Vector3(center.x, WALL_H, center.z)
+              ceil_mi.rotation.x = PI
+              add_child(ceil_mi)
+
+              var wall_mat := _mat(Color(0.24, 0.2, 0.16), 0.9)
+              for y in gh:
+                  for x in gw:
+                      if maze[y][x]:
+                          _add_block(Vector3(x * GRID, WALL_H * 0.5, y * GRID), Vector3(GRID, WALL_H, GRID), wall_mat)
+
+              var n := 0
+              for c in _open_cells():
+                  if (c.x + c.y * 3) % 4 == 0 and n < 26:
+                      _add_ceiling_light(c)
+                      n += 1
+
+              key_nodes.clear()
+              for c in key_cells:
+                  var holder := Node3D.new()
+                  holder.position = _cell_world(c)
+                  var k := _box(Vector3(0.28, 0.12, 0.12), _mat(Color(1.0, 0.8, 0.2), 0.3, true), Vector3(0.0, 0.9, 0.0))
+                  holder.add_child(k)
+                  var kl := OmniLight3D.new()
+                  kl.position = Vector3(0.0, 1.0, 0.0)
+                  kl.light_color = Color(1.0, 0.8, 0.3)
+                  kl.omni_range = 3.0
+                  kl.light_energy = 0.9
+                  holder.add_child(kl)
+                  add_child(holder)
+                  key_nodes.append(holder)
+
+              var ep := _cell_world(exit_cell)
+              exit_mat = _mat(Color(0.6, 0.05, 0.05), 0.5, true)
+              add_child(_box(Vector3(GRID * 0.9, WALL_H * 0.8, 0.12), exit_mat, Vector3(ep.x, WALL_H * 0.4, ep.z)))
+              exit_light = OmniLight3D.new()
+              exit_light.position = Vector3(ep.x, 1.5, ep.z)
+              exit_light.light_color = Color(1.0, 0.2, 0.2)
+              exit_light.omni_range = 5.0
+              exit_light.light_energy = 1.5
+              add_child(exit_light)
+
+          func _add_ceiling_light(c: Vector2i) -> void:
+              var p := _cell_world(c)
+              add_child(_box(Vector3(0.6, 0.05, 0.6), _mat(Color(1.0, 0.9, 0.7), 0.5, true), Vector3(p.x, WALL_H - 0.05, p.z)))
+              var l := OmniLight3D.new()
+              l.position = Vector3(p.x, WALL_H - 0.3, p.z)
+              l.light_color = Color(1.0, 0.78, 0.5)
+              l.omni_range = 7.0
+              l.light_energy = 1.4
+              add_child(l)
+              lights.append({"node": l, "base": 1.4, "off": 0.0, "phase": rng.randf() * TAU})
+
+          func _add_block(pos: Vector3, size: Vector3, mat: Material) -> StaticBody3D:
+              var body := StaticBody3D.new()
+              body.position = pos
+              var mi := MeshInstance3D.new()
+              var bm := BoxMesh.new()
+              bm.size = size
+              mi.mesh = bm
+              mi.material_override = mat
+              body.add_child(mi)
+              var cs := CollisionShape3D.new()
+              var bs := BoxShape3D.new()
+              bs.size = size
+              cs.shape = bs
+              body.add_child(cs)
+              add_child(body)
+              return body
+
+          func _box(size: Vector3, mat: Material, pos: Vector3) -> MeshInstance3D:
+              var mi := MeshInstance3D.new()
+              var bm := BoxMesh.new()
+              bm.size = size
+              mi.mesh = bm
+              mi.material_override = mat
+              mi.position = pos
+              return mi
+
+          func _mat(c: Color, rough := 0.9, emit := false) -> StandardMaterial3D:
+              var m := StandardMaterial3D.new()
+              m.albedo_color = c
+              m.roughness = rough
+              if emit:
+                  m.emission_enabled = true
+                  m.emission = c
+                  m.emission_energy_multiplier = 2.0
+              return m
+
+          # ---------- JUGADOR, MANO Y LINTERNA ----------
+          func _build_player() -> void:
+              player = CharacterBody3D.new()
+              player.position = _cell_world(Vector2i(1, 1))
+              var cs := CollisionShape3D.new()
+              var cap := CapsuleShape3D.new()
+              cap.radius = 0.3
+              cap.height = 1.7
+              cs.shape = cap
+              cs.position.y = 0.85
+              player.add_child(cs)
+
+              cam = Camera3D.new()
+              cam.position = Vector3(0.0, 1.6, 0.0)
+              cam.fov = 72.0
+              cam.near = 0.05
+              cam.far = 80.0
+              player.add_child(cam)
+              add_child(player)
+              cam.current = true
+
+              hand = Node3D.new()
+              hand.position = HAND_POS
+              cam.add_child(hand)
+              var skin := _mat(Color(0.72, 0.55, 0.45), 0.7)
+              var sleeve := _mat(Color(0.1, 0.1, 0.12), 0.9)
+              hand.add_child(_box(Vector3(0.11, 0.11, 0.4), sleeve, Vector3(0.0, -0.06, 0.22)))
+              hand.add_child(_box(Vector3(0.1, 0.1, 0.1), skin, Vector3.ZERO))
+              hand.add_child(_box(Vector3(0.09, 0.035, 0.1), skin, Vector3(0.0, -0.06, -0.06)))
+              hand.add_child(_box(Vector3(0.04, 0.04, 0.12), skin, Vector3(-0.05, 0.0, -0.02)))
+
+              var body_mat := _mat(Color(0.15, 0.15, 0.17), 0.4)
+              var barrel := MeshInstance3D.new()
+              var cyl := CylinderMesh.new()
+              cyl.top_radius = 0.035
+              cyl.bottom_radius = 0.04
+              cyl.height = 0.2
+              barrel.mesh = cyl
+              barrel.material_override = body_mat
+              barrel.rotation.x = PI * 0.5
+              barrel.position = Vector3(0.0, 0.02, -0.1)
+              hand.add_child(barrel)
+
+              lamp_mat = _mat(Color(1.0, 0.97, 0.85), 0.2, true)
+              var lens := MeshInstance3D.new()
+              var sph := SphereMesh.new()
+              sph.radius = 0.032
+              sph.height = 0.064
+              lens.mesh = sph
+              lens.material_override = lamp_mat
+              lens.position = Vector3(0.0, 0.02, -0.2)
+              hand.add_child(lens)
+
+              flashlight = SpotLight3D.new()
+              flashlight.light_color = Color(1.0, 0.95, 0.8)
+              flashlight.light_energy = 6.0
+              flashlight.spot_range = 22.0
+              flashlight.spot_angle = 26.0
+              flashlight.spot_attenuation = 0.6
+              flashlight.shadow_enabled = false
+              flashlight.position = Vector3(0.0, 0.02, -0.22)
+              hand.add_child(flashlight)
+
+              # Polvo en el haz de luz
+              var dust := CPUParticles3D.new()
+              dust.amount = 80
+              dust.lifetime = 5.0
+              dust.preprocess = 3.0
+              dust.local_coords = false
+              dust.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+              dust.emission_box_extents = Vector3(2.5, 1.5, 6.0)
+              dust.gravity = Vector3.ZERO
+              dust.initial_velocity_min = 0.0
+              dust.initial_velocity_max = 0.05
+              dust.scale_amount_min = 0.4
+              dust.scale_amount_max = 1.0
+              var dm := SphereMesh.new()
+              dm.radius = 0.012
+              dm.height = 0.024
+              var dmat := StandardMaterial3D.new()
+              dmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+              dmat.albedo_color = Color(1.0, 1.0, 0.9, 0.5)
+              dmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+              dm.material = dmat
+              dust.mesh = dm
+              dust.position = Vector3(0.0, 0.0, -6.0)
+              cam.add_child(dust)
+
+          # ---------- AMYR (ENEMIGO) ----------
+          func _build_monster() -> void:
+              monster = CharacterBody3D.new()
+              monster.position = _cell_world(_far_open_cell(Vector2i(1, 1), 7.0))
+              var cs := CollisionShape3D.new()
+              var cap := CapsuleShape3D.new()
+              cap.radius = 0.4
+              cap.height = 1.9
+              cs.shape = cap
+              cs.position.y = 0.95
+              monster.add_child(cs)
+              add_child(monster)
+
+              model_root = Node3D.new()
+              monster.add_child(model_root)
+              _load_amyr(model_root)
+              model_base_scale = model_root.scale
+              monster_target = monster.position
+
+          func _far_open_cell(from: Vector2i, min_dist: float) -> Vector2i:
+              var opts: Array = []
+              for c in _open_cells():
+                  if _dist(c, from) > min_dist:
+                      opts.append(c)
+              if opts.is_empty():
+                  return last_cell
+              return opts.pick_random()
+
+          func _load_amyr(holder: Node3D) -> void:
+              var path := "res://assets/Amyr.fbx"
+              var ok := false
+              if ResourceLoader.exists(path):
+                  var ps := load(path) as PackedScene
+                  if ps:
+                      var inst := ps.instantiate() as Node3D
+                      holder.add_child(inst)
+                      _fit_height(holder, 2.1)
+                      _play_anim(inst)
+                      ok = true
+              if not ok:
+                  holder.add_child(_box(Vector3(0.7, 2.0, 0.45), _mat(Color(0.04, 0.04, 0.04), 1.0), Vector3(0.0, 1.0, 0.0)))
+              holder.rotation.y = MODEL_YAW_OFFSET
+
+          func _fit_height(root: Node3D, target: float) -> void:
+              var h := 0.0
+              for mi in _meshes(root):
+                  h = maxf(h, mi.get_aabb().size.y * mi.global_transform.basis.get_scale().y)
+              if h > 0.001:
+                  root.scale *= target / h
+
+          func _meshes(n: Node) -> Array:
+              var out: Array = []
+              if n is MeshInstance3D:
+                  out.append(n)
+              for c in n.get_children():
+                  out.append_array(_meshes(c))
+              return out
+
+          func _play_anim(root: Node) -> void:
+              var ap := _find_anim(root)
+              if ap == null:
+                  return
+              var names := ap.get_animation_list()
+              if names.size() > 0:
+                  ap.get_animation(names[0]).loop_mode = Animation.LOOP_LINEAR
+                  ap.play(names[0])
+
+          func _find_anim(n: Node) -> AnimationPlayer:
+              if n is AnimationPlayer:
+                  return n as AnimationPlayer
+              for c in n.get_children():
+                  var r := _find_anim(c)
+                  if r != null:
+                      return r
+              return null
+
+          func _next_step(from_c: Vector2i, to_c: Vector2i) -> Vector2i:
+              var prev := {from_c: from_c}
+              var q: Array[Vector2i] = [from_c]
+              var found := false
+              while q.size() > 0:
+                  var c: Vector2i = q.pop_front()
+                  if c == to_c:
+                      found = true
+                      break
+                  for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+                      var n: Vector2i = c + d
+                      if not _is_open(n) or prev.has(n):
+                          continue
+                      prev[n] = c
+                      q.append(n)
+              if not found:
+                  return from_c
+              var cur := to_c
+              while prev[cur] != from_c:
+                  cur = prev[cur]
+              return cur
+
+          func _is_lit(p: Vector3) -> bool:
+              if not flash_on or flashlight.light_energy <= 0.0:
+                  return false
+              var lp := flashlight.global_position
+              var to := p - lp
+              if to.length() > flashlight.spot_range:
+                  return false
+              var fwd := -flashlight.global_transform.basis.z
+              if fwd.angle_to(to.normalized()) > deg_to_rad(flashlight.spot_angle):
+                  return false
+              var q := PhysicsRayQueryParameters3D.create(lp, p)
+              q.exclude = [player.get_rid()]
+              var hit := get_world_3d().direct_space_state.intersect_ray(q)
+              return hit.is_empty() or hit["collider"] == monster
+
+          # ---------- UI ----------
+          func _build_ui() -> void:
+              var layer := CanvasLayer.new()
+              add_child(layer)
+
+              var vig := ColorRect.new()
+              vig.set_anchors_preset(Control.PRESET_FULL_RECT)
+              vig.mouse_filter = Control.MOUSE_FILTER_IGNORE
+              var sh := Shader.new()
+              sh.code = VIG_SHADER
+              vig_mat = ShaderMaterial.new()
+              vig_mat.shader = sh
+              vig.material = vig_mat
+              layer.add_child(vig)
+
+              hud = Label.new()
+              hud.position = Vector2(16, 12)
+              hud.add_theme_font_size_override("font_size", 22)
+              hud.add_theme_color_override("font_color", Color(0.85, 0.8, 0.7))
+              layer.add_child(hud)
+
+              msg = Label.new()
+              msg.set_anchors_preset(Control.PRESET_FULL_RECT)
+              msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+              msg.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+              msg.add_theme_font_size_override("font_size", 40)
+              msg.add_theme_color_override("font_color", Color(0.9, 0.2, 0.2))
+              msg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+              layer.add_child(msg)
+
+              flash_rect = ColorRect.new()
+              flash_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+              flash_rect.color = Color(0.6, 0.0, 0.0, 0.0)
+              flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+              layer.add_child(flash_rect)
+
+          func _show_msg(t: String, dur: float) -> void:
+              msg.text = t
+              msg_timer = dur
+              msg.modulate.a = 1.0
+
+          func _update_hud() -> void:
+              hud.text = "Llaves: %d/%d    Pila: %d%%" % [keys_found, KEYS_NEEDED, int(battery)]
+
+          # ---------- BUCLES ----------
+          func _process(delta: float) -> void:
+              time += delta
+              if state != "play":
+                  state_timer += delta
+              cam.rotation.x = pitch
+              _update_flashlight(delta)
+              _update_lights(delta)
+              _update_keys(delta)
+              _update_heartbeat(delta)
+              _update_creak(delta)
+              _update_hud()
+
+              shake = maxf(0.0, shake - delta * 2.0)
+              var jitter := Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), 0.0) * shake * 0.08
+              cam.position = Vector3(0.0, 1.6 + sin(time * 9.0) * 0.03 * walk_amt, 0.0) + jitter
+              hand.position = HAND_POS + Vector3(0.0, sin(time * 9.0) * 0.012 * walk_amt, 0.0)
+
+              vig_mat.set_shader_parameter("strength", lerpf(0.7, 1.0, closeness))
+
+              if msg_timer > 0.0:
+                  msg_timer -= delta
+                  if msg_timer < 0.6:
+                      msg.modulate.a = clampf(msg_timer / 0.6, 0.0, 1.0)
+
+          func _physics_process(delta: float) -> void:
+              if state == "play":
+                  player.rotation.y = yaw
+                  _player_move(delta)
+                  _check_goal()
+                  _update_monster(delta)
+              else:
+                  player.velocity = Vector3.ZERO
+                  player.move_and_slide()
+
+          func _player_move(delta: float) -> void:
+              var inp := Vector2.ZERO
+              if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+                  inp.y += 1.0
+              if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+                  inp.y -= 1.0
+              if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+                  inp.x -= 1.0
+              if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+                  inp.x += 1.0
+              inp += Vector2(move_dir.x, -move_dir.y)
+              inp = inp.limit_length(1.0)
+
+              var b := player.global_transform.basis
+              var dir := -b.z * inp.y + b.x * inp.x
+              var v := player.velocity
+              v.x = dir.x * 2.4
+              v.z = dir.z * 2.4
+              v.y -= 9.8 * delta
+              player.velocity = v
+              player.move_and_slide()
+
+              var moving := inp.length() > 0.1 and player.is_on_floor()
+              walk_amt = lerpf(walk_amt, 1.0 if moving else 0.0, minf(1.0, delta * 8.0))
+              if moving:
+                  step_timer -= delta
+                  if step_timer <= 0.0:
+                      step_timer = 0.48
+                      step_sfx.pitch_scale = randf_range(0.7, 1.0)
+                      step_sfx.play()
+              else:
+                  step_timer = 0.0
+
+          func _check_goal() -> void:
+              if _flat_dist(player.global_position, _cell_world(exit_cell)) < 1.6:
+                  if keys_found >= KEYS_NEEDED:
+                      _end("win")
+                  elif msg_timer <= 0.0:
+                      _show_msg("La salida está sellada. Busca las %d llaves." % KEYS_NEEDED, 2.5)
+
+          func _update_monster(delta: float) -> void:
+              var pp := player.global_position
+              var mp := monster.global_position
+              var dist := _flat_dist(pp, mp)
+              if dist < 1.3:
+                  _jumpscare()
+                  return
+
+              monster_path_timer -= delta
+              if monster_path_timer <= 0.0:
+                  monster_path_timer = 0.45
+                  var nxt := _next_step(_world_cell(mp), _world_cell(pp))
+                  monster_target = _cell_world(nxt)
+
+              var speed := 1.9 if dist > 8.0 else 2.9
+              if _is_lit(mp + Vector3(0.0, 1.0, 0.0)):
+                  speed *= 0.3
+
+              var to := monster_target - mp
+              to.y = 0.0
+              var v := Vector3.ZERO
+              if to.length() > 0.05:
+                  v = to.normalized() * speed
+                  monster.rotation.y = atan2(-v.x, -v.z)
+              monster.velocity = v
+              monster.move_and_slide()
+
+          func _jumpscare() -> void:
+              if state != "play":
+                  return
+              state = "jump"
+              state_timer = 0.0
+              player.velocity = Vector3.ZERO
+              flash_on = false
+              flashlight.light_energy = 0.0
+              _show_msg("", 0.0)
+
+              var fwd := -cam.global_transform.basis.z
+              var face := cam.global_position + fwd * 0.9
+              monster.global_position = Vector3(face.x, 0.0, face.z)
+              var toc := cam.global_position - monster.global_position
+              monster.rotation.y = atan2(-toc.x, -toc.z)
+              model_root.scale = model_base_scale * 1.25
+
+              shake = 1.5
+              scare_sfx.play()
+              drone.volume_db = -40.0
+
+              var tw := create_tween()
+              tw.tween_property(flash_rect, "color:a", 0.95, 0.06)
+              tw.tween_property(flash_rect, "color:a", 0.0, 0.9)
+              tw.tween_interval(0.6)
+              tw.tween_callback(_end.bind("dead"))
+
+          func _end(kind: String) -> void:
+              state = kind
+              state_timer = 0.0
+              drone.stop()
+              heart_sfx.stop()
+              if kind == "win":
+                  exit_light.light_color = Color(0.3, 1.0, 0.3)
+                  _show_msg("¡ESCAPASTE!\nToca para reiniciar", 99999.0)
+              else:
+                  _show_msg("TE ATRAPÓ\nToca para reiniciar", 99999.0)
+
+          # ---------- EFECTOS ----------
+          func _update_flashlight(delta: float) -> void:
+              if flash_on:
+                  battery = maxf(0.0, battery - 0.9 * delta)
+                  if battery <= 0.0:
+                      flash_on = false
+                      _show_msg("La pila se agotó...", 2.5)
+              var e := 0.0
+              if flash_on:
+                  e = 6.0
+                  if battery < 25.0 and randf() < 0.08:
+                      e = 6.0 * randf() * 0.4
+              flashlight.light_energy = e
+              lamp_mat.emission_energy_multiplier = 3.0 if flash_on else 0.1
+
+          func _update_lights(delta: float) -> void:
+              for e in lights:
+                  var l: OmniLight3D = e.node
+                  if e.off > 0.0:
+                      e.off -= delta
+                      l.light_energy = 0.05
+                  else:
+                      l.light_energy = e.base * (0.9 + 0.1 * sin(time * 6.0 + e.phase))
+                      if rng.randf() < 0.003:
+                          e.off = rng.randf_range(0.05, 0.35)
+
+          func _update_keys(delta: float) -> void:
+              for i in key_nodes.size():
+                  var k: Node3D = key_nodes[i]
+                  if not k.visible:
+                      continue
+                  k.rotate_y(delta * 1.6)
+                  if _flat_dist(player.global_position, _cell_world(key_cells[i])) < 1.6:
+                      k.visible = false
+                      keys_found += 1
+                      fx_sfx.stream = s_chime
+                      fx_sfx.pitch_scale = 1.0
+                      fx_sfx.play()
+                      _show_msg("Llave %d de %d" % [keys_found, KEYS_NEEDED], 2.0)
+                      if keys_found == KEYS_NEEDED:
+                          _unlock_exit()
+
+          func _unlock_exit() -> void:
+              exit_mat.albedo_color = Color(0.1, 0.6, 0.1)
+              exit_mat.emission = Color(0.2, 1.0, 0.2)
+              exit_light.light_color = Color(0.3, 1.0, 0.3)
+              _show_msg("¡La salida está abierta!", 3.0)
+
+          func _update_heartbeat(delta: float) -> void:
+              if monster == null:
+                  return
+              var d := _flat_dist(player.global_position, monster.global_position)
+              closeness = clampf(1.0 - d / 12.0, 0.0, 1.0)
+              drone.volume_db = lerpf(-16.0, -4.0, closeness)
+              if state != "play":
+                  return
+              heart_timer -= delta
+              if heart_timer <= 0.0:
+                  heart_sfx.play()
+                  heart_timer = lerpf(1.2, 0.45, closeness)
+
+          func _update_creak(delta: float) -> void:
+              creak_timer -= delta
+              if creak_timer <= 0.0:
+                  fx_sfx.stream = s_creak
+                  fx_sfx.pitch_scale = randf_range(0.8, 1.2)
+                  fx_sfx.play()
+                  creak_timer = randf_range(7.0, 16.0)
+
+          # ---------- ENTRADA ----------
+          func _input(event: InputEvent) -> void:
+              if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+                  _look((event as InputEventMouseMotion).relative * 0.0025)
+              elif event is InputEventScreenDrag:
+                  _drag(event as InputEventScreenDrag)
+              elif event is InputEventScreenTouch:
+                  _touch(event as InputEventScreenTouch)
+              elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+                  _on_click()
+              elif event is InputEventKey and (event as InputEventKey).pressed and not (event as InputEventKey).echo:
+                  _on_key((event as InputEventKey).keycode)
+
+          func _look(d: Vector2) -> void:
+              if state != "play":
+                  return
+              yaw -= d.x
+              pitch = clampf(pitch - d.y, -1.3, 1.3)
+
+          func _touch(e: InputEventScreenTouch) -> void:
+              if e.pressed and (state == "dead" or state == "win"):
+                  _try_restart()
+                  return
+              if state != "play":
+                  return
+              var half := get_viewport().get_visible_rect().size.x * 0.5
+              if e.pressed:
+                  if e.position.x < half and touch_move_id == -1:
+                      touch_move_id = e.index
+                      touch_move_origin = e.position
+                  elif e.position.x >= half and touch_look_id == -1:
+                      touch_look_id = e.index
+                      touch_look_moved = 0.0
+              else:
+                  if e.index == touch_move_id:
+                      touch_move_id = -1
+                      move_dir = Vector2.ZERO
+                  elif e.index == touch_look_id:
+                      if touch_look_moved < 12.0:
+                          _toggle_flash()
+                      touch_look_id = -1
+
+          func _drag(e: InputEventScreenDrag) -> void:
+              if state != "play":
+                  return
+              if e.index == touch_move_id:
+                  move_dir = ((e.position - touch_move_origin) / 90.0).limit_length(1.0)
+              elif e.index == touch_look_id:
+                  touch_look_moved += e.relative.length()
+                  _look(e.relative * 0.005)
+
+          func _on_click() -> void:
+              if state == "dead" or state == "win":
+                  _try_restart()
+                  return
+              if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+                  Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+              else:
+                  _toggle_flash()
+
+          func _on_key(k: Key) -> void:
+              if state == "dead" or state == "win":
+                  _try_restart()
+                  return
+              if k == KEY_F:
+                  _toggle_flash()
+              elif k == KEY_ESCAPE:
+                  Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+          func _toggle_flash() -> void:
+              if battery <= 0.0 or state != "play":
+                  return
+              flash_on = not flash_on
+              fx_sfx.stream = s_step
+              fx_sfx.pitch_scale = 1.5
+              fx_sfx.play()
+
+          func _try_restart() -> void:
+              if state_timer > 1.2:
+                  get_tree().reload_current_scene()
+          EOF
+
+      - name: Importar recursos (FBX incluido)
+        run: godot --headless --path . --import || true
+
+      - name: Exportar APK
         run: |
           mkdir -p build
-          ./godot --headless --import
-          set -o pipefail
-          ./godot --headless --verbose --export-debug "Android" build/AmyrPasillo.apk 2>&1 | tee export.log
-          test -s build/AmyrPasillo.apk
-
-      - name: Diagnóstico legible si falla
-        if: failure()
-        run: |
-          echo "=== LOG COMPLETO DE EXPORTACIÓN ==="
-          if [ -f export.log ]; then cat export.log; else echo "No se generó export.log"; fi
-          echo "=== Plantillas de exportación ==="
-          ls -la "$HOME/.local/share/godot/export_templates/4.3.stable" || true
-          find "$HOME/.local/share/godot/export_templates/4.3.stable" -maxdepth 1 -type f -printf '%f %s bytes\n' || true
-          echo "=== SDK de Android ==="
-          ls "$HOME/android-sdk" || true
-          ls "$HOME/android-sdk/build-tools" "$HOME/android-sdk/platforms" \
-            "$HOME/android-sdk/cmake" "$HOME/android-sdk/ndk" || true
-          echo "=== Java ==="
-          echo "JAVA_HOME=$JAVA_HOME"
-          echo "=== Configuración del editor ==="
-          cat "$HOME/.config/godot/editor_settings-4.tres" || true
-          echo "=== Keystore ==="
-          ls -la "$HOME/debug.keystore" || true
+          godot --headless --path . --export-debug "Android" build/Amyr.apk
+          ls -lh build/
 
       - name: Subir APK
         uses: actions/upload-artifact@v4
         with:
-          name: AmyrPasillo-APK
-          path: build/AmyrPasillo.apk
+          name: Amyr-APK
+          path: build/Amyr.apk
