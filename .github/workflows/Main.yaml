@@ -899,7 +899,25 @@ jobs:
         run: |
           mkdir -p build
           ./godot --headless --import
-          ./godot --headless --export-debug "Android" build/AmyrPasillo.apk
+          set -o pipefail
+          ./godot --headless --export-debug "Android" build/AmyrPasillo.apk 2>&1 | tee export.log
+
+      - name: Diagnóstico legible si falla
+        if: failure()
+        run: |
+          echo "=== ERROR DE EXPORTACIÓN (líneas cortas) ==="
+          grep -A8 -i "configuration errors\|cannot export\|error" export.log | fold -s -w 70 || true
+          echo "=== Plantillas de exportación ==="
+          ls -la "$HOME/.local/share/godot/export_templates/4.3.stable" || true
+          echo "=== SDK de Android ==="
+          ls "$HOME/android-sdk" || true
+          ls "$HOME/android-sdk/build-tools" "$HOME/android-sdk/platforms" || true
+          echo "=== Java ==="
+          echo "JAVA_HOME=$JAVA_HOME"
+          echo "=== Configuración del editor ==="
+          cat "$HOME/.config/godot/editor_settings-4.3.tres" || true
+          echo "=== Keystore ==="
+          ls -la "$HOME/debug.keystore" || true
 
       - name: Subir APK
         uses: actions/upload-artifact@v4
