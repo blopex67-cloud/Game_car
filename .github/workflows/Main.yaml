@@ -62,8 +62,8 @@ jobs:
 
           [physics]
 
-          common/physics_ticks_per_second=120
-          common/max_physics_steps_per_frame=8
+          common/physics_ticks_per_second=90
+          common/max_physics_steps_per_frame=6
 
           [rendering]
 
@@ -72,7 +72,7 @@ jobs:
           textures/vram_compression/import_etc2_astc=true
           textures/default_filters/anisotropic_filtering_level=2
           anti_aliasing/quality/msaa_3d=1
-          lights_and_shadows/directional_shadow/size=2048
+          lights_and_shadows/directional_shadow/size=1024
           environment/defaults/default_clear_color=Color(0.5, 0.65, 0.85, 1)
           EOF
           cat > game/export_presets.cfg <<'EOF'
@@ -111,8 +111,8 @@ jobs:
           keystore/release=""
           keystore/release_user=""
           keystore/release_password=""
-          version/code=1
-          version/name="1.0"
+          version/code=2
+          version/name="2.0"
           package/unique_name="com.mfstudio.subaruracing"
           package/name="Subaru Racing"
           package/signed=true
@@ -170,13 +170,14 @@ jobs:
           const MIX_RATE = 22050.0
           const PAINTS = [Color(0.03, 0.12, 0.55), Color(0.65, 0.02, 0.03), Color(0.9, 0.9, 0.92), Color(0.02, 0.02, 0.025), Color(0.95, 0.7, 0.05), Color(0.05, 0.35, 0.1)]
 
-          # ---- entradas (las escribe el HUD) ----
+          # ---- entradas (las escriben el HUD o la IA) ----
           var throttle_in = 0.0
           var brake_in = 0.0
           var steer_in = 0.0        # -1 izquierda, +1 derecha
           var handbrake_in = false
           var input_locked = false
           var sound_on = true
+          var power_mult = 1.0      # lo usan los modos sorpresa
 
           # ---- estado (lo lee el HUD) ----
           var gear = 1
@@ -209,7 +210,7 @@ jobs:
           var noise_lp = 0.0
 
 
-          func build(scene):
+          func build(scene, with_audio = true):
               mass = CAR_MASS
               center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
               center_of_mass = Vector3(0.0, 0.3, 0.0)
@@ -247,7 +248,17 @@ jobs:
               ]
               for d in defs:
                   _make_wheel(model, d[0], d[1], d[2])
-              _setup_audio()
+              if with_audio:
+                  _setup_audio()
+
+
+          # Configura el coche: color y, si es IA, optimizaciones (sin sombra y con distancia de corte)
+          func configure(paint, ai):
+              set_paint(paint)
+              if ai:
+                  for mi in _meshes(visual, []):
+                      mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+                      mi.visibility_range_end = 260.0
 
 
           func set_spawn(xf):
@@ -367,10 +378,14 @@ jobs:
                       mi.set_surface_override_material(i, mat)
 
 
-          func next_paint():
-              paint_idx = (paint_idx + 1) % PAINTS.size()
+          func set_paint(i):
+              paint_idx = i % PAINTS.size()
               for m in paint_mats:
                   m.albedo_color = PAINTS[paint_idx]
+
+
+          func next_paint():
+              set_paint(paint_idx + 1)
 
 
           func set_sound(on):
@@ -484,7 +499,7 @@ jobs:
               var r = maxf(rpm_wheel, lerpf(IDLE_RPM, 3600.0, t))
               if r > REDLINE:
                   return 0.0
-              return _torque(r) * ratio * 0.9 / wheel_r * t * DRIVETRAIN
+              return _torque(r) * ratio * 0.9 / wheel_r * t * DRIVETRAIN * power_mult
 
 
           func _powertrain(delta, tin, bin, fwd):
@@ -623,16 +638,199 @@ jobs:
                   buf[i] = Vector2(s, s)
               playback.push_buffer(buf)
           EOF
+          cat > game/ai_driver.gd <<'EOF'
+          # Corredor: el jugador o una IA. La IA sigue la línea grabada en la vuelta de reconocimiento.
+          extends RefCounted
+
+          var car
+          var is_player = false
+          var name_str = "TÚ"
+          var lane = 0.0
+          var skill = 1.0
+          var idx = -1
+          var laps = 0
+          var done = false
+          var finish_time = -1.0
+          var rank = 0
+          var stuck_t = 0.0
+
+
+          # Índice del punto de la traza más cercano a pos. Busca en una ventana alrededor de hint
+          # (rápido) y solo recorre toda la traza si el coche está lejos de ella.
+          static func closest(trace: PackedVector3Array, pos: Vector3, hint: int) -> int:
+              var n = trace.size()
+              if n == 0:
+                  return 0
+              var best = 0
+              var bd = INF
+              if hint >= 0:
+                  for k in range(-40, 41):
+                      var i = posmod(hint + k, n)
+                      var d = trace[i].distance_squared_to(pos)
+                      if d < bd:
+                          bd = d
+                          best = i
+                  if bd < 1600.0:
+                      return best
+              bd = INF
+              for i in range(n):
+                  var d2 = trace[i].distance_squared_to(pos)
+                  if d2 < bd:
+                      bd = d2
+                      best = i
+              return best
+
+
+          func track_progress(trace: PackedVector3Array):
+              var n = trace.size()
+              if n == 0 or car == null:
+                  return
+              var ni = closest(trace, car.global_position, idx)
+              if idx >= 0:
+                  if idx > n * 3 / 4 and ni < n / 4:
+                      laps += 1
+                  elif idx < n / 4 and ni > n * 3 / 4:
+                      laps = maxi(0, laps - 1)
+              idx = ni
+
+
+          func drive(delta: float, trace: PackedVector3Array, finished: bool):
+              var n = trace.size()
+              if car == null or n < 10:
+                  return
+              if finished or idx < 0:
+                  car.steer_in = 0.0
+                  car.throttle_in = 0.0
+                  car.brake_in = 0.5
+                  car.handbrake_in = false
+                  return
+              var spd = car.speed_ms
+              var look = 8 + int(spd * 0.35)
+              var t_i = (idx + look) % n
+              var tan_a = _flat(trace[(idx + 2) % n] - trace[idx])
+              var tan_b = _flat(trace[(t_i + 2) % n] - trace[t_i])
+              var turn = absf(tan_a.angle_to(tan_b))
+              var tgt = trace[t_i] + tan_b.cross(Vector3.UP) * lane
+              var local = car.global_transform.basis.inverse() * (tgt - car.global_position)
+              var ang = atan2(local.x, -local.z)
+              var steer = clampf(ang * 2.5, -1.0, 1.0)
+              var tv = lerpf(62.0, 22.0, clampf(turn * 2.2, 0.0, 1.0)) * skill
+              var th = 0.0
+              var br = 0.0
+              if spd < tv - 1.0:
+                  th = 1.0
+              elif spd > tv + 2.0:
+                  br = clampf((spd - tv) / 8.0, 0.0, 1.0)
+              else:
+                  th = 0.35
+              if not car.input_locked and spd < 1.5 and th > 0.5:
+                  stuck_t += delta
+                  if stuck_t > 4.0:
+                      stuck_t = 0.0
+                      car.respawn()
+              else:
+                  stuck_t = 0.0
+              car.steer_in = steer
+              car.throttle_in = th
+              car.brake_in = br
+              car.handbrake_in = false
+
+
+          func _flat(v: Vector3) -> Vector3:
+              var f = Vector3(v.x, 0.0, v.z)
+              if f.length() < 0.001:
+                  return Vector3(0.0, 0.0, -1.0)
+              return f.normalized()
+          EOF
+          cat > game/menu.gd <<'EOF'
+          # Pantalla de inicio con los modos de juego.
+          extends Control
+
+          signal chosen(id)
+
+          const OPTS = [
+              ["LIBRE", "Sin rivales. Traza el circuito y cronometra."],
+              ["COMPETENCIA", "3 rivales IA. Vuelta de reconocimiento y carrera."],
+              ["SORPRESA", "Cada carrera trae un cambio aleatorio."]
+          ]
+
+          var font
+          var u = 1.0
+          var rects = []
+
+
+          func _ready():
+              set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+              mouse_filter = Control.MOUSE_FILTER_IGNORE
+              font = ThemeDB.fallback_font
+              resized.connect(_layout)
+              _layout()
+
+
+          func _layout():
+              var W = size.x
+              var H = size.y
+              u = H / 720.0
+              rects.clear()
+              var bw = minf(600.0 * u, W * 0.8)
+              var bh = 108.0 * u
+              var gap = 20.0 * u
+              for i in range(OPTS.size()):
+                  rects.append(Rect2(W * 0.5 - bw * 0.5, H * 0.42 + i * (bh + gap), bw, bh))
+              queue_redraw()
+
+
+          func _input(event):
+              if not visible:
+                  return
+              var pos = null
+              if event is InputEventScreenTouch and event.pressed:
+                  pos = event.position
+              elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+                  pos = event.position
+              if pos == null:
+                  return
+              for i in range(rects.size()):
+                  if rects[i].has_point(pos):
+                      get_viewport().set_input_as_handled()
+                      chosen.emit(i)
+                      return
+
+
+          func _text(t, center, fs, col):
+              var s = int(fs)
+              var w = font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, s)
+              var p = Vector2(center.x - w.x * 0.5, center.y + fs * 0.35)
+              draw_string(font, p + Vector2(2, 2), t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, Color(0, 0, 0, 0.6))
+              draw_string(font, p, t, HORIZONTAL_ALIGNMENT_LEFT, -1, s, col)
+
+
+          func _draw():
+              var W = size.x
+              var H = size.y
+              draw_rect(Rect2(Vector2.ZERO, size), Color(0.0, 0.02, 0.06, 0.35))
+              _text("SUBARU", Vector2(W * 0.5, H * 0.14), 92.0 * u, Color(1, 1, 1, 1))
+              _text("RACING", Vector2(W * 0.5, H * 0.14 + 80.0 * u), 46.0 * u, Color(1.0, 0.8, 0.2, 1))
+              _text("IMPREZA WRX STI  ·  CIRCUITO", Vector2(W * 0.5, H * 0.3), 22.0 * u, Color(1, 1, 1, 0.8))
+              for i in range(rects.size()):
+                  var r = rects[i]
+                  draw_rect(r, Color(0.03, 0.12, 0.55, 0.9))
+                  draw_rect(r, Color(1, 1, 1, 0.5), false, 2.0)
+                  _text(OPTS[i][0], Vector2(r.get_center().x, r.position.y + 40.0 * u), 40.0 * u, Color(1, 1, 1, 1))
+                  _text(OPTS[i][1], Vector2(r.get_center().x, r.position.y + 80.0 * u), 19.0 * u, Color(1, 1, 1, 0.8))
+          EOF
           cat > game/hud.gd <<'EOF'
           extends Control
 
           var car
           var main
           var font
+          var active = false
           var sb_idle
           var sb_press
           var btns = {}
           var touches = {}
+          var orbit_index = -999
           var steer_in = 0.0
           var thr_in = 0.0
           var brk_in = 0.0
@@ -645,9 +843,17 @@ jobs:
           var best_lap = -1.0
           var msg = ""
           var toast = ""
+          var banner = ""
+          var race_mode = false
+          var race_pos = 1
+          var race_total = 4
+          var race_lap = 1
+          var race_laps = 3
+          var results = []
 
           const HOLD = ["left", "right", "gas", "brake", "hand"]
-          const CAM_NAMES = ["CHASE", "FAR", "HOOD"]
+          const CAM_NAMES = ["CHASE", "LEJOS", "CAPÓ"]
+          const MOUSE_ID = -7
 
 
           func _ready():
@@ -678,7 +884,7 @@ jobs:
               btns["gas"] = Rect2(W - 210.0 * u, H - 260.0 * u, 180.0 * u, 220.0 * u)
               btns["brake"] = Rect2(W - 410.0 * u, H - 200.0 * u, 180.0 * u, 160.0 * u)
               btns["hand"] = Rect2(W - 410.0 * u, H - 310.0 * u, 180.0 * u, 90.0 * u)
-              var names = ["cam", "color", "reset", "snd"]
+              var names = ["cam", "color", "reset", "snd", "menu"]
               var bw = 110.0 * u
               for i in range(names.size()):
                   btns[names[i]] = Rect2(W - (i + 1) * (bw + 12.0 * u), 16.0 * u, bw, 58.0 * u)
@@ -691,25 +897,54 @@ jobs:
               return ""
 
 
+          # Entrada unificada: touch, ratón. Los botones se mantienen pulsados; fuera de ellos arrastrar gira la cámara.
           func _input(event):
+              if not active or car == null or main == null:
+                  return
               if event is InputEventScreenTouch:
                   if event.pressed:
-                      var id = _hit(event.position)
-                      if id != "":
-                          touches[event.index] = id
-                          _tap(id)
+                      _down(event.index, event.position)
                   else:
-                      touches.erase(event.index)
+                      _up(event.index)
               elif event is InputEventScreenDrag:
-                  if touches.has(event.index):
-                      var id2 = _hit(event.position)
-                      if id2 != "" and HOLD.has(id2) and HOLD.has(touches[event.index]):
-                          touches[event.index] = id2
+                  _drag(event.index, event.relative, event.position)
+              elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+                  if event.pressed:
+                      _down(MOUSE_ID, event.position)
+                  else:
+                      _up(MOUSE_ID)
+              elif event is InputEventMouseMotion:
+                  if event.button_mask & MOUSE_BUTTON_MASK_RIGHT:
+                      main.orbit_by(event.relative)
+                  elif event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+                      _drag(MOUSE_ID, event.relative, event.position)
+
+
+          func _down(id, pos):
+              var b = _hit(pos)
+              if b != "":
+                  touches[id] = b
+                  _tap(b)
+              else:
+                  orbit_index = id
+
+
+          func _up(id):
+              touches.erase(id)
+              if orbit_index == id:
+                  orbit_index = -999
+
+
+          func _drag(id, rel, pos):
+              if touches.has(id):
+                  var b = _hit(pos)
+                  if b != "" and HOLD.has(b) and HOLD.has(touches[id]):
+                      touches[id] = b
+              elif id == orbit_index:
+                  main.orbit_by(rel)
 
 
           func _tap(id):
-              if car == null:
-                  return
               if id == "cam":
                   main.cycle_camera()
               elif id == "color":
@@ -719,6 +954,8 @@ jobs:
               elif id == "snd":
                   sound_on = not sound_on
                   car.set_sound(sound_on)
+              elif id == "menu":
+                  main.go_menu()
 
 
           func _held(id):
@@ -726,7 +963,7 @@ jobs:
 
 
           func _process(delta):
-              if car == null:
+              if not active or car == null:
                   return
               var left = _held("left") or Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A)
               var right = _held("right") or Input.is_key_pressed(KEY_RIGHT) or Input.is_key_pressed(KEY_D)
@@ -785,7 +1022,7 @@ jobs:
 
 
           func _draw():
-              if car == null:
+              if not active or car == null:
                   return
               var W = size.x
               var H = size.y
@@ -813,6 +1050,8 @@ jobs:
                       _text("RESET", r.get_center(), 20.0 * u, white)
                   elif k == "snd":
                       _text("SND ON" if sound_on else "SND OFF", r.get_center(), 18.0 * u, white)
+                  elif k == "menu":
+                      _text("MENÚ", r.get_center(), 22.0 * u, white)
 
               # velocimetro
               var cx = W * 0.5
@@ -835,29 +1074,65 @@ jobs:
               var col = Color(1, 1, 1, 0.9).lerp(Color(1, 0.15, 0.1, 1), clampf((car.rpm - 5800.0) / 1200.0, 0.0, 1.0))
               draw_rect(Rect2(bx, by, bw * f, bh), col)
 
-              # vueltas
-              _text_left("LAP " + str(lap), Vector2(24.0 * u, 44.0 * u), 34.0 * u, Color(1, 1, 1, 1))
-              _text_left(_fmt(lap_time), Vector2(24.0 * u, 84.0 * u), 30.0 * u, white)
-              _text_left("BEST " + _fmt(best_lap), Vector2(24.0 * u, 120.0 * u), 22.0 * u, Color(0.5, 1.0, 0.6, 1))
-              _text_left("LAST " + _fmt(last_lap), Vector2(24.0 * u, 148.0 * u), 22.0 * u, white)
+              # tiempos (esquina superior izquierda)
+              _text_left("TIEMPO " + _fmt(lap_time), Vector2(24.0 * u, 44.0 * u), 30.0 * u, Color(1, 1, 1, 1))
+              _text_left("MEJOR " + _fmt(best_lap), Vector2(24.0 * u, 84.0 * u), 22.0 * u, Color(0.5, 1.0, 0.6, 1))
+              _text_left("ÚLTIMA " + _fmt(last_lap), Vector2(24.0 * u, 112.0 * u), 22.0 * u, white)
+
+              # modo carrera (centro superior)
+              if race_mode:
+                  _text("P%d/%d" % [race_pos, race_total], Vector2(cx, 64.0 * u), 56.0 * u, Color(1, 1, 1, 1))
+                  _text("VUELTA %d/%d" % [race_lap, race_laps], Vector2(cx, 112.0 * u), 26.0 * u, white)
+              if banner != "":
+                  _text(banner, Vector2(cx, 150.0 * u), 22.0 * u, Color(1.0, 0.9, 0.3, 1))
 
               if msg != "":
                   _text(msg, Vector2(cx, H * 0.30), 130.0 * u, Color(1, 1, 1, 1))
               if toast != "":
                   _text(toast, Vector2(cx, H * 0.18), 40.0 * u, Color(1.0, 0.9, 0.3, 1))
+
+              # resultados al terminar
+              if results.size() > 0:
+                  var ph = (results.size() * 44.0 + 30.0) * u
+                  draw_rect(Rect2(cx - 260.0 * u, H * 0.42 - 40.0 * u, 520.0 * u, ph), Color(0, 0, 0, 0.6))
+                  for i in range(results.size()):
+                      _text(results[i], Vector2(cx, H * 0.42 + (i * 44.0) * u), 26.0 * u, Color(1, 1, 1, 1))
           EOF
           cat > game/main.gd <<'EOF'
           extends Node3D
 
           const CarScript = preload("res://car.gd")
           const HudScript = preload("res://hud.gd")
+          const MenuScript = preload("res://menu.gd")
+          const RacerScript = preload("res://ai_driver.gd")
           const TRACK_PATH = "res://models/circuito_forza.glb"
           const CAR_PATH = "res://models/2006_subaru_impreza_wrx_sti.glb"
+          const AI_COUNT = 3
+          const RACE_LAPS = 3
+          const TRACE_STEP = 3.0
+          const ORBIT_RETURN = 3.0
+          const AI_NAMES = ["NORDEN", "VOLTA", "RAPTOR"]
+          const AI_LANES = [-2.4, 2.6, -0.4]
+          const MODS = ["TURBO", "GRAVEDAD LUNAR", "NIEBLA DENSA", "NOCHE", "COLORES LOCOS"]
+          const SKY_TOP = Color(0.2, 0.42, 0.85)
+          const SKY_HOR = Color(0.7, 0.8, 0.92)
+          const DEF_FOG = Color(0.72, 0.8, 0.9)
+          const DEF_FOG_DENSITY = 0.0008
+          const DEF_SUN = 1.25
+          const DEF_AMBIENT = 0.9
 
+          enum State { MENU, FREE, RECON, GRID, RACE, FINISHED }
+
+          var state = State.MENU
+          var car_scene
           var track
           var car
           var camera
           var hud
+          var menu
+          var env
+          var sun
+          var sky_mat
           var spawn_xf = Transform3D.IDENTITY
           var fwd0 = Vector3.RIGHT
           var line_center = Vector3.ZERO
@@ -866,8 +1141,12 @@ jobs:
           var cam_mode = 0
           var cam_dir = Vector3.RIGHT
           var cam_y = 0.0
+          var orbit_yaw = 0.0
+          var orbit_pitch = 0.0
+          var orbit_idle = 99.0
+          var attract_yaw = 0.0
 
-          var countdown = 3.5
+          var countdown = -1.0
           var started = false
           var armed = false
           var lap = 0
@@ -878,14 +1157,28 @@ jobs:
           var have_prev = false
           var toast_t = 0.0
 
+          # traza del circuito (la graba la primera vuelta; la IA la sigue)
+          var trace = PackedVector3Array()
+          var trace_ready = false
+          var recording = false
+          var rec_last = Vector3.ZERO
+
+          var racers = []
+          var player_r
+          var race_time = 0.0
+          var finish_count = 0
+          var surprise = false
+          var mod_name = ""
+
 
           func _ready():
+              randomize()
               Engine.max_fps = 60
               DisplayServer.screen_set_keep_on(true)
               _build_environment()
 
               var track_scene = load(TRACK_PATH)
-              var car_scene = load(CAR_PATH)
+              car_scene = load(CAR_PATH)
               if track_scene == null or car_scene == null:
                   _fatal("No se pudieron cargar los modelos .glb")
                   return
@@ -896,15 +1189,19 @@ jobs:
               _find_spawn()
 
               car = CarScript.new()
-              car.build(car_scene)
+              car.build(car_scene, true)
               add_child(car)
               car.global_transform = spawn_xf
               car.set_spawn(spawn_xf)
-              car.input_locked = true
+
+              player_r = RacerScript.new()
+              player_r.car = car
+              player_r.is_player = true
+              racers = [player_r]
 
               camera = Camera3D.new()
               camera.near = 0.08
-              camera.far = 2500.0
+              camera.far = 2000.0
               camera.fov = 68.0
               add_child(camera)
               camera.current = true
@@ -917,6 +1214,11 @@ jobs:
               layer.add_child(hud)
               hud.car = car
               hud.main = self
+              menu = MenuScript.new()
+              layer.add_child(menu)
+              menu.chosen.connect(_on_menu_choice)
+
+              go_menu()
 
 
           func _fatal(text):
@@ -930,22 +1232,22 @@ jobs:
 
 
           func _build_environment():
-              var sky_mat = ProceduralSkyMaterial.new()
-              sky_mat.sky_top_color = Color(0.2, 0.42, 0.85)
-              sky_mat.sky_horizon_color = Color(0.7, 0.8, 0.92)
+              sky_mat = ProceduralSkyMaterial.new()
+              sky_mat.sky_top_color = SKY_TOP
+              sky_mat.sky_horizon_color = SKY_HOR
               sky_mat.ground_horizon_color = Color(0.65, 0.72, 0.78)
               sky_mat.ground_bottom_color = Color(0.3, 0.35, 0.35)
               var sky = Sky.new()
               sky.sky_material = sky_mat
-              var env = Environment.new()
+              env = Environment.new()
               env.background_mode = Environment.BG_SKY
               env.sky = sky
               env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-              env.ambient_light_energy = 0.9
+              env.ambient_light_energy = DEF_AMBIENT
               env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
               env.fog_enabled = true
-              env.fog_light_color = Color(0.72, 0.8, 0.9)
-              env.fog_density = 0.0008
+              env.fog_light_color = DEF_FOG
+              env.fog_density = DEF_FOG_DENSITY
               env.adjustment_enabled = true
               env.adjustment_saturation = 1.1
               env.adjustment_contrast = 1.05
@@ -953,9 +1255,9 @@ jobs:
               we.environment = env
               add_child(we)
 
-              var sun = DirectionalLight3D.new()
+              sun = DirectionalLight3D.new()
               sun.rotation_degrees = Vector3(-48.0, -35.0, 0.0)
-              sun.light_energy = 1.25
+              sun.light_energy = DEF_SUN
               sun.shadow_enabled = true
               sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
               sun.directional_shadow_max_distance = 140.0
@@ -1015,37 +1317,258 @@ jobs:
                   line_half = 12.0
 
 
-          func cycle_camera():
-              cam_mode = (cam_mode + 1) % 3
+          # ================= MENÚ Y MODOS =================
+          func go_menu():
+              state = State.MENU
+              _remove_ais()
+              _clear_mods()
+              countdown = -1.0
+              _reset_player()
+              car.input_locked = true
+              hud.active = false
+              hud.visible = false
+              hud.results = []
+              hud.msg = ""
+              hud.banner = ""
+              menu.visible = true
+              menu.queue_redraw()
 
 
-          func respawn():
-              if car != null:
-                  car.respawn()
-                  var f = -car.global_transform.basis.z
-                  f.y = 0.0
-                  if f.length() > 0.05:
-                      cam_dir = f.normalized()
+          func _on_menu_choice(i):
+              menu.visible = false
+              hud.visible = true
+              hud.active = true
+              hud.results = []
+              hud.banner = ""
+              surprise = (i == 2)
+              if i == 0:
+                  _start_free()
+              else:
+                  _start_competition()
+
+
+          func _start_free():
+              state = State.FREE
+              _remove_ais()
+              _clear_mods()
+              _reset_lap()
+              _reset_player()
+              car.input_locked = false
+              hud.msg = ""
+
+
+          func _start_competition():
+              _remove_ais()
+              _clear_mods()
+              _reset_lap()
+              _reset_player()
+              car.input_locked = false
+              hud.msg = ""
+              if trace_ready:
+                  _start_grid()
+              else:
+                  state = State.RECON
+                  hud.banner = "VUELTA DE RECONOCIMIENTO: traza el circuito"
+
+
+          func _start_grid():
+              state = State.GRID
+              _remove_ais()
+              for k in range(AI_COUNT):
+                  racers.append(_make_ai(k))
+              if surprise:
+                  _apply_mod(MODS[randi() % MODS.size()])
+              else:
+                  _clear_mods()
+              finish_count = 0
+              race_time = 0.0
+              _place_racer(racers[0], AI_COUNT)
+              for k in range(AI_COUNT):
+                  _place_racer(racers[k + 1], k)
+              countdown = 3.5
+              hud.msg = ""
+              hud.banner = ("SORPRESA: " + mod_name) if surprise else "COMPETENCIA"
+              hud.results = []
+
+
+          func _make_ai(k):
+              var c = CarScript.new()
+              c.build(car_scene, false)
+              add_child(c)
+              c.configure(k + 1, true)
+              var r = RacerScript.new()
+              r.car = c
+              r.name_str = AI_NAMES[k]
+              r.lane = AI_LANES[k]
+              r.skill = randf_range(0.9, 1.04)
+              return r
+
+
+          func _remove_ais():
+              for r in racers:
+                  if not r.is_player and is_instance_valid(r.car):
+                      r.car.queue_free()
+              racers = [player_r]
+
+
+          # Coloca un corredor en parrilla, detrás de la línea de meta (slot 0 = más adelante)
+          func _place_racer(r, slot):
+              var n = trace.size()
+              var i = posmod(n - 8 * (slot + 1), n)
+              var t = _flat(trace[(i + 1) % n] - trace[i])
+              var pos = trace[i] + t.cross(Vector3.UP) * r.lane + Vector3(0.0, 0.3, 0.0)
+              var xf = Transform3D(Basis.looking_at(t, Vector3.UP), pos)
+              r.car.set_spawn(xf)
+              r.car.global_transform = xf
+              r.car.linear_velocity = Vector3.ZERO
+              r.car.angular_velocity = Vector3.ZERO
+              r.car.gear = 1
+              r.car.input_locked = true
+              r.idx = i
+              r.laps = 0
+              r.done = false
+              r.rank = 0
+              r.finish_time = -1.0
+              r.stuck_t = 0.0
+              if r.is_player:
+                  have_prev = false
+
+
+          func _grid_logic(delta):
+              countdown -= delta
+              if countdown > 2.5:
+                  hud.msg = "3"
+              elif countdown > 1.5:
+                  hud.msg = "2"
+              elif countdown > 0.5:
+                  hud.msg = "1"
+              elif countdown > -0.8:
+                  hud.msg = "GO!"
+              else:
+                  hud.msg = ""
+              for r in racers:
+                  r.car.input_locked = countdown > 0.5
+              if countdown <= -0.8:
+                  state = State.RACE
+
+
+          # ================= MODS SORPRESA =================
+          func _clear_mods():
+              mod_name = ""
+              env.fog_density = DEF_FOG_DENSITY
+              env.fog_light_color = DEF_FOG
+              env.ambient_light_energy = DEF_AMBIENT
+              sun.light_energy = DEF_SUN
+              sky_mat.sky_top_color = SKY_TOP
+              sky_mat.sky_horizon_color = SKY_HOR
+              for r in racers:
+                  if is_instance_valid(r.car):
+                      r.car.power_mult = 1.0
+                      r.car.gravity_scale = 1.0
+
+
+          func _apply_mod(m):
+              _clear_mods()
+              mod_name = m
+              for r in racers:
+                  if m == "TURBO":
+                      r.car.power_mult = 1.6
+                  elif m == "GRAVEDAD LUNAR":
+                      r.car.gravity_scale = 0.4
+                  elif m == "COLORES LOCOS":
+                      r.car.set_paint(randi() % CarScript.PAINTS.size())
+              if m == "NIEBLA DENSA":
+                  env.fog_density = 0.012
+              elif m == "NOCHE":
+                  sun.light_energy = 0.2
+                  env.ambient_light_energy = 0.4
+                  sky_mat.sky_top_color = Color(0.01, 0.02, 0.06)
+                  sky_mat.sky_horizon_color = Color(0.05, 0.07, 0.12)
+
+
+          # ================= ESTADO DE CARRERA =================
+          func _reset_lap():
+              started = false
+              armed = false
+              lap = 0
+              lap_time = 0.0
+              last_lap = -1.0
+              best_lap = -1.0
+              recording = false
+              have_prev = false
+
+
+          func _reset_player():
+              car.set_spawn(spawn_xf)
+              car.global_transform = spawn_xf
+              car.linear_velocity = Vector3.ZERO
+              car.angular_velocity = Vector3.ZERO
+              car.gear = 1
+              have_prev = false
 
 
           func _physics_process(delta):
-              if car == null or hud == null:
+              if car == null or state == State.MENU:
                   return
+              _lap_logic(delta)
+              if state == State.RECON:
+                  if trace_ready:
+                      _start_grid()
+                  return
+              if state == State.FREE:
+                  return
+              if state == State.GRID:
+                  _grid_logic(delta)
+              elif state == State.RACE:
+                  race_time += delta
+              _update_racers(delta)
 
-              if countdown > -1.0:
-                  countdown -= delta
-                  if countdown > 2.5:
-                      hud.msg = "3"
-                  elif countdown > 1.5:
-                      hud.msg = "2"
-                  elif countdown > 0.5:
-                      hud.msg = "1"
-                  elif countdown > -0.8:
-                      hud.msg = "GO!"
-                  else:
-                      hud.msg = ""
-                  car.input_locked = countdown > 0.5
 
+          func _update_racers(delta):
+              for r in racers:
+                  r.track_progress(trace)
+                  if not r.done and r.laps >= RACE_LAPS and state != State.GRID:
+                      _finish(r)
+                  if not r.is_player:
+                      r.drive(delta, trace, r.done)
+
+
+          func _finish(r):
+              finish_count += 1
+              r.done = true
+              r.rank = finish_count
+              r.finish_time = race_time
+              if r.is_player:
+                  state = State.FINISHED
+                  hud.msg = "¡FIN!"
+
+
+          # Orden de carrera: primero los que han terminado, luego por distancia recorrida
+          func _key(r):
+              if r.done:
+                  return 1.0e9 - float(r.rank)
+              return float(r.laps * trace.size() + maxi(r.idx, 0))
+
+
+          func _ranked():
+              var arr = racers.duplicate()
+              arr.sort_custom(func(a, b): return _key(a) > _key(b))
+              return arr
+
+
+          func _result_lines():
+              var out = []
+              var arr = _ranked()
+              for i in range(arr.size()):
+                  var r = arr[i]
+                  var nm = "TÚ" if r.is_player else r.name_str
+                  var tail = hud._fmt(r.finish_time) if r.done else "en pista"
+                  out.append("%d. %s   %s" % [i + 1, nm, tail])
+              return out
+
+
+          # Cronometraje por línea de meta (vuelta libre y reconocimiento)
+          func _lap_logic(delta):
               var cp = car.global_position
               if not have_prev:
                   prev_pos = cp
@@ -1060,11 +1583,20 @@ jobs:
                   if dist > 140.0:
                       armed = true
 
+              if recording and car.all_road and cp.distance_to(rec_last) > TRACE_STEP:
+                  trace.append(cp)
+                  rec_last = cp
+
               if d_prev < 0.0 and d_cur >= 0.0 and side < line_half and car.fwd_speed > 0.0:
                   if not started:
                       started = true
                       lap = 1
                       lap_time = 0.0
+                      if not trace_ready:
+                          recording = true
+                          trace.clear()
+                          trace.append(cp)
+                          rec_last = cp
                   elif armed:
                       last_lap = lap_time
                       if best_lap < 0.0 or last_lap < best_lap:
@@ -1074,6 +1606,13 @@ jobs:
                       lap += 1
                       lap_time = 0.0
                       armed = false
+                      if recording:
+                          trace_ready = trace.size() > 50
+                          recording = not trace_ready
+                          if recording:
+                              trace.clear()
+                              trace.append(cp)
+                              rec_last = cp
               prev_pos = cp
 
               if toast_t > 0.0:
@@ -1081,15 +1620,67 @@ jobs:
                   if toast_t <= 0.0:
                       hud.toast = ""
 
+
+          # ================= IA: ver _ranked / drive en ai_driver.gd =================
+          func _flat(v):
+              var f = Vector3(v.x, 0.0, v.z)
+              if f.length() < 0.001:
+                  return Vector3(0.0, 0.0, -1.0)
+              return f.normalized()
+
+
+          func respawn():
+              car.respawn()
+              have_prev = false
+
+
+          func cycle_camera():
+              cam_mode = (cam_mode + 1) % 3
+              orbit_yaw = 0.0
+              orbit_pitch = 0.0
+
+
+          # Llamado desde el HUD al arrastrar fuera de los botones
+          func orbit_by(rel: Vector2):
+              orbit_yaw -= rel.x * 0.008
+              orbit_pitch = clampf(orbit_pitch - rel.y * 0.004, -0.1, 0.8)
+              orbit_idle = 0.0
+
+
+          func _update_hud():
               hud.lap = lap
               hud.lap_time = lap_time
               hud.last_lap = last_lap
               hud.best_lap = best_lap
+              if state == State.FREE or state == State.RECON or state == State.MENU:
+                  hud.race_mode = false
+                  hud.results = []
+                  return
+              hud.race_mode = true
+              hud.race_pos = _ranked().find(player_r) + 1
+              hud.race_total = racers.size()
+              hud.race_lap = mini(player_r.laps + 1, RACE_LAPS)
+              hud.race_laps = RACE_LAPS
+              hud.results = _result_lines() if state == State.FINISHED else []
 
 
           func _process(delta):
               if car == null or camera == null:
                   return
+              if state == State.MENU:
+                  # modo demo: la cámara da vueltas al coche detrás del menú
+                  attract_yaw += delta * 0.2
+                  var c = car.global_position
+                  var off = Vector3(sin(attract_yaw), 0.0, cos(attract_yaw)) * 11.0
+                  camera.global_position = c + off + Vector3(0.0, 4.0, 0.0)
+                  camera.look_at(c + Vector3(0.0, 1.0, 0.0), Vector3.UP)
+                  camera.fov = 55.0
+                  return
+              _update_hud()
+              _update_camera(delta)
+
+
+          func _update_camera(delta):
               var cb = car.global_transform
               var fwd = -cb.basis.z
               fwd.y = 0.0
@@ -1106,9 +1697,16 @@ jobs:
                   cam_dir = fwd
               cam_dir = cam_dir.normalized()
 
+              # tras soltar la cámara, vuelve suavemente detrás del coche
+              orbit_idle += delta
+              if orbit_idle > ORBIT_RETURN:
+                  var k = clampf(delta * 2.5, 0.0, 1.0)
+                  orbit_yaw = lerpf(orbit_yaw, 0.0, k)
+                  orbit_pitch = lerpf(orbit_pitch, 0.0, k)
+
               var base_fov = 68.0
               if cam_mode == 2:
-                  camera.global_transform = cb * Transform3D(Basis(), Vector3(0.0, 1.12, -0.2))
+                  camera.global_transform = cb * Transform3D(Basis(Vector3.UP, orbit_yaw), Vector3(0.0, 1.12, -0.2))
                   base_fov = 78.0
               else:
                   var dist = 6.0
@@ -1116,8 +1714,10 @@ jobs:
                   if cam_mode == 1:
                       dist = 9.0
                       h = 3.2
-                  var p = cb.origin - cam_dir * dist
-                  cam_y = lerpf(cam_y, cb.origin.y + h, clampf(delta * 6.0, 0.0, 1.0))
+                  var off = cam_dir.rotated(Vector3.UP, orbit_yaw)
+                  var p = cb.origin - off * dist
+                  var ty = cb.origin.y + h + orbit_pitch * dist * 0.8
+                  cam_y = lerpf(cam_y, ty, clampf(delta * 6.0, 0.0, 1.0))
                   p.y = cam_y
                   camera.global_position = p
                   camera.look_at(cb.origin + Vector3(0.0, 0.9, 0.0) + cam_dir * 2.0, Vector3.UP)
@@ -1176,7 +1776,7 @@ jobs:
       - name: Revisar scripts (falla si hay errores de sintaxis)
         run: |
           fail=0
-          for s in car hud main; do
+          for s in car ai_driver menu hud main; do
             echo "== $s.gd =="
             out=$(godot --headless --path game --check-only --script "res://$s.gd" 2>&1) || true
             echo "$out"
