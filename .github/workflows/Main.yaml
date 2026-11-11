@@ -1,16 +1,3 @@
-INSTRUCCIONES
-=============
-1. Sube Amyr.fbx a la carpeta assets/ de tu repositorio (assets/Amyr.fbx).
-2. Crea la carpeta .github/workflows/ en la raíz del repositorio.
-3. Guarda este contenido (desde "name: Build Amyr APK" hasta el final) en:
-   .github/workflows/build-apk.yml
-4. Haz push a main, o ve a Actions > Build Amyr APK > Run workflow.
-5. Descarga el artefacto Amyr-APK e instálalo en Android.
-
-------------------------------------------------------------------
-CONTENIDO DEL ARCHIVO: .github/workflows/build-apk.yml
-------------------------------------------------------------------
-
 name: Build Amyr APK
 
 on:
