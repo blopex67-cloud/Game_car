@@ -1,61 +1,108 @@
-escena: "Pasillo del Abismo"
-configuracion_global:
-  atmosfera:
-    iluminacion: "baja_estatica_parpadeante"
-    visibilidad_porcentaje: 40
-    audio_ambiente: "zumbido_baja_frecuencia_3d"
-  jugador:
-    posicion_inicial: "Punto_A"
-    inventario:
-      linterna:
-        estado_inicial: "encendida"
-        bateria_porcentaje: 60
-  entidad:
-    nombre: "Amyr"
-    estado_inicial: "inactivo"
-    posicion_inicial: "fuera_de_mapa"
+name: Compilar APK de Godot y Juego Amyr
 
-triggers:
-  - id: "Trigger_01"
-    condicion: "Jugador avanza 8 metros o interactúa con el primer objeto"
-    acciones:
-      - tipo: "cambiar_estado_luz"
-        objetivo: "Luz_Principal"
-        nuevo_estado: "OFF"
-      - tipo: "reproducir_audio"
-        archivo: "susurro_distante_3d.wav"
-        volumen: 0.8
-      - tipo: "efecto_camara"
-        tipo_efecto: "distorsion"
-        duracion_segundos: 1.5
-      - tipo: "mostrar_texto"
-        contenido: "El aire se siente helado. Necesito salir de aquí antes de que las luces se apaguen por completo..."
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
 
-  - id: "Trigger_02"
-    condicion: "Jugador llega a la mitad del pasillo"
-    acciones:
-      - tipo: "spawn_entidad"
-        entidad: "Amyr"
-        punto: "Punto_B"
-      - tipo: "cambiar_estado_ia"
-        entidad: "Amyr"
-        modo: "PERSECUCION"
-      - tipo: "reproducir_audio"
-        archivo: "tension_in_crescendo.wav"
-        tipo: "musica_fondo"
-      - tipo: "evento_narrativo"
-        descripcion: "Un chasquido resonante se escucha al fondo. Amyr fija su mirada en el jugador."
+jobs:
+  build-and-export:
+    runs-on: ubuntu-latest
 
-condiciones_fin_escena:
-  exito:
-    condicion: "Jugador cruza la puerta final y acciona el cerrojo"
-    resultado:
-      - transicion: "pantalla_en_negro"
-      - audio: "respiracion_agitada"
-      - detener_musica: true
-  fallo:
-    condicion: "Distancia entre Amyr y Jugador < 2.0 metros"
-    resultado:
-      - bloquear_controles: true
-      - efecto_visual: "screamer_impacto"
-      - accion: "reiniciar_punto_de_control"
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      # 1. GENERAR ARCHIVOS DEL PROYECTO GODOT AUTOMÁTICAMENTE
+      - name: Crear estructura de archivos del juego en YAML/Godot
+        run: |
+          # project.godot
+          cat << 'EOF' > project.godot
+          config_version=5
+          [application]
+          config/name="Amyr Horror Game"
+          run/main_scene="res://EscenaPasillo.tscn"
+          config/features=PackedStringArray("4.3", "Forward Plus")
+          [display]
+          window/size/viewport_width=1280
+          window/size/viewport_height=720
+          [input_devices]
+          pointing/emulate_touch_from_mouse=true
+          EOF
+
+          # export_presets.cfg
+          cat << 'EOF' > export_presets.cfg
+          [preset.0]
+          name="Android"
+          platform="Android"
+          runnable=true
+          export_filter="all_resources"
+          export_path="build/amyr.apk"
+          EOF
+
+          # EscenaPasillo.gd
+          cat << 'EOF' > EscenaPasillo.gd
+          extends Node3D
+          @onready var luz_principal: SpotLight3D = $LuzPrincipal
+          @onready var amyr: CharacterBody3D = $Amyr
+          @onready var jugador: CharacterBody3D = $Jugador
+          func _ready() -> void:
+              amyr.visible = false
+          func _on_trigger_01_body_entered(body: Node3D) -> void:
+              if body == jugador:
+                  luz_principal.light_energy = 0.0
+                  print("El aire se siente helado...")
+                  $Triggers/Trigger01.queue_free()
+          func _on_trigger_02_body_entered(body: Node3D) -> void:
+              if body == jugador:
+                  amyr.visible = true
+                  print("¡Amyr ha aparecido!")
+                  $Triggers/Trigger02.queue_free()
+          EOF
+
+          # EscenaPasillo.tscn
+          cat << 'EOF' > EscenaPasillo.tscn
+          [gd_scene load_steps=5 format=3]
+          [ext_resource type="Script" path="res://EscenaPasillo.gd" id="1"]
+          [sub_resource type="BoxShape3D" id="1"]
+          size = Vector3(10, 3, 2)
+          [node name="EscenaPasillo" type="Node3D"]
+          script = ExtResource("1")
+          [node name="LuzPrincipal" type="SpotLight3D" parent="."]
+          transform = Transform3D(1, 0, 0, 0, -4.37114e-08, 1, 0, -1, -4.37114e-08, 0, 4, 0)
+          light_energy = 2.0
+          [node name="Jugador" type="CharacterBody3D" parent="."]
+          transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+          [node name="Camera3D" type="Camera3D" parent="Jugador"]
+          [node name="Amyr" type="CharacterBody3D" parent="."]
+          transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -12)
+          [node name="Triggers" type="Node3D" parent="."]
+          [node name="Trigger01" type="Area3D" parent="Triggers"]
+          transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -4)
+          [node name="CollisionShape3D" type="CollisionShape3D" parent="Triggers/Trigger01"]
+          shape = SubResource("1")
+          [node name="Trigger02" type="Area3D" parent="Triggers"]
+          transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -8)
+          [node name="CollisionShape3D" type="CollisionShape3D" parent="Triggers/Trigger02"]
+          shape = SubResource("1")
+          [connection signal="body_entered" from="Triggers/Trigger01" to="." method="_on_trigger_01_body_entered"]
+          [connection signal="body_entered" from="Triggers/Trigger02" to="." method="_on_trigger_02_body_entered"]
+          EOF
+
+      # 2. COMPILAR CON GODOT EXPORT
+      - name: Compilar APK usando Godot Export Action
+        uses: abarrak/godot-export@v2
+        with:
+          godot_version: "4.3"
+          export_preset: "Android"
+          relative_project_path: "."
+          archive_output: false
+
+      # 3. SUBIR EL APK RESULTANTE COMO ARTIFACT
+      - name: Subir APK generado
+        uses: actions/upload-artifact@v4
+        with:
+          name: AmyrHorrorGame-APK
+          path: |
+            **/*.apk
