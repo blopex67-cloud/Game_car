@@ -29,13 +29,13 @@ jobs:
       - name: Generar proyecto UV Studio
         run: |
           set -e
-          mkdir -p src .github/workflows
+          mkdir -p src
 
           cat > package.json <<'EOF'
           {
             "name": "uv-studio",
             "private": true,
-            "version": "1.0.0",
+            "version": "2.0.0",
             "type": "module",
             "scripts": {
               "dev": "vite",
@@ -75,7 +75,7 @@ jobs:
               "androidScheme": "https"
             },
             "android": {
-              "backgroundColor": "#070a12"
+              "backgroundColor": "#0f1115"
             }
           }
           EOF
@@ -99,62 +99,96 @@ jobs:
           </head>
           <body>
             <div class="app">
-              <header class="hud-top">
-                <div class="brand">UV<span>STUDIO</span></div>
-                <div class="actions">
-                  <label class="btn ghost" for="fileIn">Abrir</label>
+
+              <aside class="panel side">
+                <div class="brand">UV Studio <small>v2</small></div>
+
+                <div class="group">
+                  <div class="gtitle">Archivo</div>
+                  <label class="btn" for="fileIn">Abrir modelo</label>
                   <input id="fileIn" type="file" accept=".glb,.gltf" hidden />
-                  <button class="btn ghost" id="btnUnwrap">Auto-UV</button>
-                  <button class="btn primary" id="btnGLB">GLB</button>
-                  <button class="btn primary" id="btnZIP">ZIP</button>
+                  <label class="btn" for="imgIn">Importar textura</label>
+                  <input id="imgIn" type="file" accept="image/*" hidden />
+                  <button class="btn" id="btnUnwrap">Re-UV</button>
+                  <div class="grid2">
+                    <button class="btn primary" id="btnGLB">GLB</button>
+                    <button class="btn primary" id="btnZIP">ZIP</button>
+                  </div>
                 </div>
-              </header>
 
-              <section class="viewport hud-frame" id="viewport">
-                <canvas id="view3d"></canvas>
-                <div class="hud-info" id="info">—</div>
-              </section>
+                <div class="group">
+                  <div class="gtitle">Canal</div>
+                  <div class="grid2">
+                    <button class="tab active" data-ch="albedo">Color</button>
+                    <button class="tab" data-ch="height">Altura</button>
+                    <button class="tab" data-ch="rough">Rugosa</button>
+                    <button class="tab" data-ch="normal">Normal</button>
+                  </div>
+                </div>
 
-              <nav class="tabs">
-                <button data-tab="albedo" class="active">Color</button>
-                <button data-tab="height">Altura</button>
-                <button data-tab="rough">Rugosidad</button>
-                <button data-tab="normal">Normal</button>
-                <button data-tab="uv">UV</button>
-              </nav>
-
-              <section class="editor hud-frame">
-                <div class="editor-head"><span id="editorTitle">Color (albedo)</span></div>
-                <div class="canvas-wrap" id="canvasWrap"></div>
-
-                <div class="toolbar">
-                  <div class="row" data-show="albedo height rough">
+                <div class="group">
+                  <div class="gtitle">Herramientas</div>
+                  <div class="grid2">
                     <button class="chip" data-tool="brush">Pincel</button>
                     <button class="chip" data-tool="eraser">Borrador</button>
                     <button class="chip" id="btnFill">Relleno</button>
                     <button class="chip" id="btnUndo">Deshacer</button>
-                    <button class="chip" id="btnClear">Limpiar</button>
                   </div>
-                  <div class="row" data-show="albedo height rough">
-                    <label>Tamaño <input type="range" id="size" min="1" max="200" value="24" /></label>
-                    <label>Opacidad <input type="range" id="opacity" min="5" max="100" value="100" /></label>
-                  </div>
-                  <div class="row" data-show="albedo">
-                    <label>Color <input type="color" id="color" value="#8b5cf6" /></label>
-                  </div>
-                  <div class="row" data-show="height rough">
-                    <label>Valor <input type="range" id="gray" min="0" max="255" value="128" /></label>
-                    <button class="chip" id="btnNoise">Ruido</button>
-                  </div>
-                  <div class="row" data-show="normal">
-                    <label>Fuerza <input type="range" id="strength" min="0.5" max="12" step="0.1" value="4" /></label>
-                    <button class="chip" id="btnBake">Recalcular</button>
-                  </div>
-                  <div class="row" data-show="uv">
-                    <button class="chip" id="btnUVRefresh">Actualizar vista UV</button>
+                  <button class="chip" id="btnClear">Limpiar canal</button>
+                  <button class="chip on" id="btnOverlay">UV visible</button>
+                </div>
+
+                <div class="group" data-show="albedo height rough">
+                  <div class="row">Tamaño <input type="range" id="size" min="1" max="200" value="24" /></div>
+                  <div class="row">Opacidad <input type="range" id="opacity" min="5" max="100" value="100" /></div>
+                </div>
+
+                <div class="group" data-show="albedo">
+                  <div class="row">Color <input type="color" id="color" value="#9aa4b2" /></div>
+                </div>
+
+                <div class="group" data-show="height rough">
+                  <div class="row">Valor <input type="range" id="gray" min="0" max="255" value="128" /></div>
+                </div>
+
+                <div class="group" data-show="normal">
+                  <div class="row">Fuerza <input type="range" id="strength" min="0.5" max="12" step="0.1" value="4" /></div>
+                  <button class="btn" id="btnBake">Recalcular normal</button>
+                </div>
+              </aside>
+
+              <main class="panel editor">
+                <div class="editor-head">
+                  <span id="chTitle">Color</span>
+                  <span class="hint">Pinta sobre el UV</span>
+                </div>
+                <div class="canvas-area">
+                  <div class="stage" id="stage"></div>
+                </div>
+              </main>
+
+              <section class="right">
+                <div class="panel viewport" id="viewport">
+                  <canvas id="view3d"></canvas>
+                  <div class="hud-info" id="info">—</div>
+                </div>
+                <div class="panel materials">
+                  <div class="gtitle">Materiales</div>
+                  <div class="mat-grid" id="matGrid"></div>
+                  <div class="mat-sliders">
+                    <div class="row">Metálico <input type="range" id="metal" min="0" max="1" step="0.01" value="0" /></div>
+                    <div class="row">Rugosidad <input type="range" id="roughScale" min="0" max="1" step="0.01" value="1" /></div>
                   </div>
                 </div>
               </section>
+            </div>
+
+            <div class="loader" id="loader" hidden>
+              <div class="loader-box">
+                <div class="spinner"></div>
+                <div id="loaderText">Cargando…</div>
+                <div class="bar"><div id="loaderBar"></div></div>
+              </div>
             </div>
 
             <div class="toast" id="toast"></div>
@@ -165,13 +199,13 @@ jobs:
 
           cat > src/style.css <<'EOF'
           :root {
-            --bg: #070a12;
-            --panel: rgba(14, 20, 36, 0.78);
-            --line: rgba(0, 229, 255, 0.28);
-            --cyan: #00e5ff;
-            --violet: #8b5cf6;
-            --text: #e6f1ff;
-            --muted: #7a8ba8;
+            --bg: #0f1115;
+            --panel: #16191f;
+            --panel-2: #1d2129;
+            --border: #2a303b;
+            --text: #e7e9ee;
+            --muted: #8a929f;
+            --accent: #4f8cff;
           }
 
           * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -181,7 +215,7 @@ jobs:
             height: 100%;
             background: var(--bg);
             color: var(--text);
-            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            font: 13px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
             overflow: hidden;
             user-select: none;
             -webkit-user-select: none;
@@ -189,55 +223,111 @@ jobs:
 
           .app {
             height: 100%;
+            display: grid;
+            grid-template-columns: 172px minmax(0, 1fr) minmax(0, 1fr);
+            gap: 8px;
+            padding: calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
+          }
+
+          .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            min-height: 0;
+          }
+
+          /* ---------- Sidebar ---------- */
+          .side {
+            padding: 10px;
             display: flex;
             flex-direction: column;
-            padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0;
+            gap: 12px;
+            overflow-y: auto;
+          }
+          .brand { font-weight: 700; font-size: 15px; padding: 2px 2px 0; }
+          .brand small { color: var(--muted); font-weight: 500; font-size: 11px; }
+          .group { display: flex; flex-direction: column; gap: 6px; }
+          .gtitle {
+            font-size: 11px; color: var(--muted);
+            text-transform: uppercase; letter-spacing: .08em;
+            padding: 0 2px;
+          }
+          .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+          .btn, .tab, .chip {
+            font: inherit; font-weight: 600; font-size: 12px;
+            color: var(--text);
+            background: var(--panel-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 6px;
+            text-align: center;
+            cursor: pointer;
+            transition: background .15s, border-color .15s;
+          }
+          .btn:active, .tab:active, .chip:active { transform: scale(.98); }
+          .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+          .tab.active { border-color: var(--accent); background: rgba(79, 140, 255, .14); color: #c9dcff; }
+          .chip.on { border-color: var(--accent); color: #c9dcff; }
+          .chip[data-tool].on { background: rgba(79, 140, 255, .14); }
+
+          .row {
+            display: flex; flex-direction: column; gap: 4px;
+            font-size: 12px; color: var(--muted);
+          }
+          .row input[type="range"] { width: 100%; accent-color: var(--accent); }
+          .row input[type="color"] {
+            width: 100%; height: 30px;
+            border: 1px solid var(--border); border-radius: 8px;
+            background: none; padding: 2px;
           }
 
-          /* ---------- Header ---------- */
-          .hud-top {
+          /* ---------- Editor ---------- */
+          .editor {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
             gap: 8px;
-            padding: 10px 12px;
+            padding: 10px;
           }
-          .brand { font-weight: 800; letter-spacing: 2px; font-size: 18px; }
-          .brand span { color: var(--cyan); text-shadow: 0 0 12px rgba(0, 229, 255, 0.6); }
-          .actions { display: flex; gap: 6px; }
-
-          .btn {
-            font: inherit; font-size: 12px; font-weight: 600;
-            padding: 8px 10px; border-radius: 10px;
-            border: 1px solid var(--line); background: rgba(0, 229, 255, 0.06);
-            color: var(--text); cursor: pointer; text-align: center;
-            transition: transform 0.08s, background 0.2s;
+          .editor-head {
+            display: flex; justify-content: space-between; align-items: center;
+            font-weight: 600;
           }
-          .btn:active { transform: scale(0.96); }
-          .btn.primary { background: linear-gradient(135deg, var(--cyan), var(--violet)); border: none; color: #04101a; }
-          .btn.ghost { background: transparent; }
-
-          /* ---------- HUD frames ---------- */
-          .hud-frame {
+          .hint { font-size: 11px; color: var(--muted); font-weight: 500; }
+          .canvas-area {
+            flex: 1; min-height: 0;
+            display: flex; justify-content: center; align-items: center;
+          }
+          .stage {
             position: relative;
+            height: 100%;
+            aspect-ratio: 1 / 1;
+            max-width: 100%;
+            background: #0b0d11;
+            border: 1px solid var(--border);
+            border-radius: 8px;
             overflow: hidden;
-            border: 1px solid var(--line);
-            border-radius: 14px;
-            background: var(--panel);
-            box-shadow: 0 0 24px rgba(0, 229, 255, 0.08) inset;
           }
-          .hud-frame::before {
-            content: "";
-            position: absolute; inset: 5px;
-            border: 1px solid rgba(0, 229, 255, 0.10);
-            border-radius: 10px;
-            pointer-events: none;
+          .stage canvas {
+            position: absolute; inset: 0;
+            width: 100%; height: 100%;
+            display: none;
+            touch-action: none;
           }
+          .stage canvas.show { display: block; }
+          .stage canvas.overlay { display: block; z-index: 1; pointer-events: none; }
+          .stage.no-uv canvas.overlay { display: none; }
 
-          /* ---------- Viewport 3D ---------- */
+          /* ---------- Right column ---------- */
+          .right {
+            display: flex; flex-direction: column; gap: 8px; min-height: 0;
+          }
           .viewport {
-            flex: 0 0 38vh;
-            margin: 0 10px;
+            position: relative;
+            flex: 1.4;
+            min-height: 0;
+            overflow: hidden;
+            background: #0b0d11;
           }
           .viewport canvas {
             position: absolute; inset: 0;
@@ -246,95 +336,75 @@ jobs:
             touch-action: none;
           }
           .hud-info {
-            position: absolute; left: 12px; top: 10px;
-            font: 11px ui-monospace, Menlo, monospace;
-            color: var(--cyan);
+            position: absolute; left: 8px; top: 8px;
+            font-size: 11px; color: var(--muted);
+            background: rgba(15, 17, 21, .75);
+            padding: 3px 7px; border-radius: 6px;
             pointer-events: none;
-            z-index: 2;
           }
-
-          /* ---------- Tabs ---------- */
-          .tabs {
-            display: flex; gap: 6px;
-            margin: 8px 10px 0;
-          }
-          .tabs button {
-            flex: 1;
-            font: inherit; font-size: 12px; font-weight: 600;
-            padding: 9px 0; border-radius: 10px;
-            border: 1px solid var(--line); background: transparent;
-            color: var(--muted); cursor: pointer;
-          }
-          .tabs button.active {
-            color: #04101a;
-            background: linear-gradient(135deg, var(--cyan), var(--violet));
-            border-color: transparent;
-            box-shadow: 0 0 14px rgba(0, 229, 255, 0.35);
-          }
-
-          /* ---------- Editor ---------- */
-          .editor {
+          .materials {
             flex: 1; min-height: 0;
-            margin: 8px 10px 10px;
+            display: flex; flex-direction: column; gap: 6px;
             padding: 10px;
-            display: flex; flex-direction: column; gap: 8px;
           }
-          .editor-head {
-            font-size: 12px; letter-spacing: 1px; text-transform: uppercase;
-            color: var(--cyan);
-          }
-          .canvas-wrap {
+          .mat-grid {
             flex: 1; min-height: 0;
-            display: flex; align-items: center; justify-content: center;
-            position: relative;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            overflow-y: auto;
           }
-          .canvas-wrap canvas {
-            display: none;
-            width: min(100%, 46vh);
-            height: auto;
-            aspect-ratio: 1 / 1;
-            border-radius: 10px;
-            background: #0b1020;
-            touch-action: none;
-            box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.2);
+          .mat {
+            display: flex; flex-direction: column; align-items: center; gap: 4px;
+            padding: 7px 3px;
+            font-size: 11px; color: var(--text);
+            background: var(--panel-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
           }
-          .canvas-wrap canvas.show { display: block; }
+          .mat:active { transform: scale(.97); }
+          .mat .sw {
+            width: 24px; height: 24px; border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, .12);
+          }
+          .mat-sliders {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+          }
 
-          /* ---------- Toolbar ---------- */
-          .toolbar { display: flex; flex-direction: column; gap: 6px; }
-          .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-          .row label {
-            flex: 1; min-width: 150px;
-            display: flex; align-items: center; gap: 8px;
-            font-size: 12px; color: var(--muted);
+          /* ---------- Loader ---------- */
+          .loader {
+            position: fixed; inset: 0;
+            background: rgba(9, 10, 13, .75);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 20;
           }
-          input[type="range"] { flex: 1; accent-color: var(--cyan); }
-          input[type="color"] {
-            width: 44px; height: 30px; border: none; background: none; cursor: pointer;
+          .loader-box {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px 22px;
+            min-width: 240px;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
           }
-          .chip {
-            font: inherit; font-size: 12px; font-weight: 600;
-            padding: 7px 11px; border-radius: 999px;
-            border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03);
-            color: var(--text); cursor: pointer;
+          .spinner {
+            width: 28px; height: 28px; border-radius: 50%;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            animation: spin .8s linear infinite;
           }
-          .chip.on {
-            background: rgba(0, 229, 255, 0.18);
-            border-color: var(--cyan);
-            box-shadow: 0 0 10px rgba(0, 229, 255, 0.35);
-            color: var(--cyan);
-          }
+          @keyframes spin { to { transform: rotate(360deg); } }
+          .bar { width: 100%; height: 4px; background: var(--border); border-radius: 4px; overflow: hidden; }
+          .bar div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
 
           /* ---------- Toast ---------- */
           .toast {
-            position: fixed; left: 50%; bottom: 22px;
-            transform: translate(-50%, 20px);
-            opacity: 0; transition: 0.25s ease;
-            padding: 10px 16px; border-radius: 12px;
-            background: rgba(10, 16, 30, 0.95);
-            border: 1px solid var(--line);
-            color: var(--cyan); font-size: 13px;
-            pointer-events: none; z-index: 10;
+            position: fixed; left: 50%; bottom: 14px;
+            transform: translate(-50%, 16px);
+            opacity: 0; transition: .2s ease;
+            padding: 8px 14px; border-radius: 10px;
+            background: #1d2129; border: 1px solid var(--border);
+            font-size: 12px; pointer-events: none; z-index: 30;
             max-width: 90vw; text-align: center;
           }
           .toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -354,10 +424,13 @@ jobs:
 
           const S = 1024;
           const $ = (id) => document.getElementById(id);
-          const clamp = (v) => Math.max(0, Math.min(255, v));
+          const yieldNow = () => new Promise((r) => setTimeout(r, 0));
+          const frameTick = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+          const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
           const grayHex = (v) => { const h = v.toString(16).padStart(2, '0'); return `#${h}${h}${h}`; };
+          const safeName = (s) => (s || 'modelo').replace(/[^\w\-]+/g, '_');
 
-          // ---------- UI ----------
+          // ---------- Toast y loader ----------
           let toastTimer;
           function toast(msg) {
             const t = $('toast');
@@ -367,67 +440,84 @@ jobs:
             toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
           }
 
-          const on = (id, ev, fn) => $(id).addEventListener(ev, async (e) => {
-            try { await fn(e); }
-            catch (err) { console.error(err); toast('Error: ' + (err.message || err)); }
-          });
+          const loader = {
+            el: $('loader'),
+            bar: $('loaderBar'),
+            text: $('loaderText'),
+            show(msg) { this.text.textContent = msg; this.bar.style.width = '0%'; this.el.hidden = false; },
+            set(pct, msg) { if (msg) this.text.textContent = msg; this.bar.style.width = pct + '%'; },
+            hide() { this.el.hidden = true; }
+          };
+
+          async function busy(msg, fn) {
+            loader.show(msg);
+            try {
+              await frameTick();
+              return await fn();
+            } catch (err) {
+              console.error(err);
+              toast('Error: ' + (err.message || err));
+            } finally {
+              loader.hide();
+            }
+          }
 
           // ---------- Estado ----------
           const brush = {
             tool: 'brush',
             size: 24,
             opacity: 1,
-            color: '#8b5cf6',
+            color: '#9aa4b2',
             gray: 128,
-            normalStrength: 4
+            normalStrength: 4,
+            showUV: true
           };
-          const dirty = { albedo: false, rough: false, normal: false };
-          const TITLES = {
-            albedo: 'Color (albedo)',
-            height: 'Altura → genera normal',
-            rough: 'Rugosidad (blanco = rugoso)',
-            normal: 'Normal (generado)',
-            uv: 'Layout UV'
-          };
+          const dirty = { albedo: false, height: false, rough: false, normal: false };
+          const CH_NAMES = { albedo: 'Color', height: 'Altura', rough: 'Rugosa', normal: 'Normal' };
           let model = null;
-          let modelName = 'demo_caja';
-          let currentTab = 'albedo';
+          let modelName = 'modelo';
+          let currentCh = 'albedo';
 
           // ---------- Canvas de mapas ----------
-          function makeCanvas(fill, key) {
+          function makeCanvas(fill, key, transparent = false) {
             const c = document.createElement('canvas');
             c.width = c.height = S;
             c.dataset.key = key;
             const ctx = c.getContext('2d', { willReadFrequently: true });
-            ctx.fillStyle = fill;
-            ctx.fillRect(0, 0, S, S);
+            if (!transparent) {
+              ctx.fillStyle = fill;
+              ctx.fillRect(0, 0, S, S);
+            }
             return c;
           }
+
           const canvases = {
             albedo: makeCanvas('#d9d9d9', 'albedo'),
             height: makeCanvas('#808080', 'height'),
             rough: makeCanvas('#808080', 'rough'),
-            normal: makeCanvas('#8080ff', 'normal'),
-            uv: makeCanvas('#05080f', 'uv')
+            normal: makeCanvas('#8080ff', 'normal')
           };
-          for (const c of Object.values(canvases)) $('canvasWrap').appendChild(c);
+          const overlay = makeCanvas('', 'overlay', true);
+          overlay.classList.add('overlay');
+          const stage = $('stage');
+          for (const c of Object.values(canvases)) stage.appendChild(c);
+          stage.appendChild(overlay);
 
           // ---------- Pintor ----------
           class Painter {
-            constructor(canvas, key, base) {
-              this.canvas = canvas;
+            constructor(key, base) {
               this.key = key;
               this.base = base;
-              this.ctx = canvas.getContext('2d', { willReadFrequently: true });
+              this.canvas = canvases[key];
+              this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
               this.history = [];
               this.drawing = false;
               this.last = null;
-              this.onStroke = null;
-
-              canvas.addEventListener('pointerdown', (e) => this.down(e));
-              canvas.addEventListener('pointermove', (e) => this.move(e));
-              canvas.addEventListener('pointerup', () => this.up());
-              canvas.addEventListener('pointercancel', () => this.up());
+              this.onCommit = null;
+              this.canvas.addEventListener('pointerdown', (e) => this.down(e));
+              this.canvas.addEventListener('pointermove', (e) => this.move(e));
+              this.canvas.addEventListener('pointerup', () => this.up());
+              this.canvas.addEventListener('pointercancel', () => this.up());
             }
 
             color() {
@@ -454,45 +544,31 @@ jobs:
               c.lineJoin = 'round';
             }
 
-            changed() { dirty[this.key] = true; }
-
             snapshot() {
               this.history.push(this.ctx.getImageData(0, 0, S, S));
-              if (this.history.length > 12) this.history.shift();
+              if (this.history.length > 10) this.history.shift();
+            }
+
+            commit() {
+              dirty[this.key] = true;
+              this.onCommit?.();
             }
 
             undo() {
               const img = this.history.pop();
               if (!img) return toast('Nada que deshacer');
               this.ctx.putImageData(img, 0, 0);
-              this.changed();
-              this.onStroke?.(this.key);
+              this.commit();
             }
 
             fill(color) {
               this.snapshot();
               this.ctx.fillStyle = color;
               this.ctx.fillRect(0, 0, S, S);
-              this.changed();
-              this.onStroke?.(this.key);
+              this.commit();
             }
 
             clear() { this.fill(this.base); }
-
-            noise(amount) {
-              this.snapshot();
-              const img = this.ctx.getImageData(0, 0, S, S);
-              const d = img.data;
-              for (let i = 0; i < d.length; i += 4) {
-                const n = (Math.random() - 0.5) * amount * 2;
-                d[i] = clamp(d[i] + n);
-                d[i + 1] = clamp(d[i + 1] + n);
-                d[i + 2] = clamp(d[i + 2] + n);
-              }
-              this.ctx.putImageData(img, 0, 0);
-              this.changed();
-              this.onStroke?.(this.key);
-            }
 
             down(e) {
               if (e.button > 0) return;
@@ -505,7 +581,7 @@ jobs:
               this.ctx.arc(this.last.x, this.last.y, brush.size / 2, 0, Math.PI * 2);
               this.ctx.fill();
               this.ctx.globalAlpha = 1;
-              this.changed();
+              dirty[this.key] = true;
             }
 
             move(e) {
@@ -518,32 +594,128 @@ jobs:
               this.ctx.stroke();
               this.ctx.globalAlpha = 1;
               this.last = p;
-              this.changed();
+              dirty[this.key] = true;
             }
 
             up() {
               if (!this.drawing) return;
               this.drawing = false;
               this.last = null;
-              this.onStroke?.(this.key);
+              this.commit();
             }
           }
 
           const painters = {
-            albedo: new Painter(canvases.albedo, 'albedo', '#d9d9d9'),
-            height: new Painter(canvases.height, 'height', '#808080'),
-            rough: new Painter(canvases.rough, 'rough', '#808080')
+            albedo: new Painter('albedo', '#d9d9d9'),
+            height: new Painter('height', '#808080'),
+            rough: new Painter('rough', '#808080')
           };
 
+          // ---------- Ruido procedural ----------
+          function hash2(x, y, s) {
+            const v = Math.sin(x * 127.1 + y * 311.7 + s * 17.3) * 43758.5453;
+            return v - Math.floor(v);
+          }
+
+          function vnoise(x, y, s) {
+            const xi = Math.floor(x), yi = Math.floor(y);
+            const xf = x - xi, yf = y - yi;
+            const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+            const a = hash2(xi, yi, s), b = hash2(xi + 1, yi, s);
+            const c = hash2(xi, yi + 1, s), d = hash2(xi + 1, yi + 1, s);
+            return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+          }
+
+          function fbm(x, y, oct, s) {
+            let sum = 0, amp = 0.5, f = 1, norm = 0;
+            for (let o = 0; o < oct; o++) {
+              sum += amp * vnoise(x * f, y * f, s + o);
+              norm += amp;
+              amp *= 0.5;
+              f *= 2;
+            }
+            return sum / norm;
+          }
+
+          // ---------- Materiales ----------
+          const MATERIALS = [
+            { id: 'metal', name: 'Metal pulido', metalness: 1, base: '#c8ced8', rough: [0.08, 0.22], bump: 0.10, fx: 6, fy: 6, pattern: 'noise', octaves: 3 },
+            { id: 'brushed', name: 'Metal cepillado', metalness: 1, base: '#b9c0ca', rough: [0.25, 0.45], bump: 0.06, fx: 2, fy: 90, pattern: 'noise', octaves: 2 },
+            { id: 'rock', name: 'Roca', metalness: 0, base: '#7d766b', rough: [0.75, 1], bump: 0.9, fx: 5, fy: 5, pattern: 'noise', octaves: 5 },
+            { id: 'wood', name: 'Madera', metalness: 0, base: '#8a5a33', rough: [0.45, 0.7], bump: 0.25, fx: 1.5, fy: 24, pattern: 'wood', octaves: 3 },
+            { id: 'plastic', name: 'Plástico', metalness: 0, base: '#e2e6ec', rough: [0.35, 0.45], bump: 0.02, fx: 4, fy: 4, pattern: 'noise', octaves: 2 },
+            { id: 'concrete', name: 'Concreto', metalness: 0, base: '#9a9a96', rough: [0.85, 1], bump: 0.5, fx: 12, fy: 12, pattern: 'noise', octaves: 5 },
+            { id: 'paint', name: 'Pintura auto', metalness: 0.3, base: '#2b5ea8', rough: [0.12, 0.2], bump: 0.03, fx: 3, fy: 3, pattern: 'noise', octaves: 2 },
+            { id: 'fabric', name: 'Tela', metalness: 0, base: '#5c6b58', rough: [0.9, 1], bump: 0.2, fx: 64, fy: 64, pattern: 'weave', octaves: 2 }
+          ];
+
+          async function applyMaterial(m) {
+            await busy(`Generando ${m.name}…`, async () => {
+              Object.values(painters).forEach((p) => p.snapshot());
+              const [br, bg, bb] = hexToRgb(m.base);
+              const seed = Math.random() * 1000;
+              const aImg = canvases.albedo.getContext('2d').createImageData(S, S);
+              const hImg = canvases.height.getContext('2d').createImageData(S, S);
+              const rImg = canvases.rough.getContext('2d').createImageData(S, S);
+              const a = aImg.data, h = hImg.data, r = rImg.data;
+              const r0 = m.rough[0], r1 = m.rough[1];
+
+              for (let y = 0; y < S; y++) {
+                if (y % 32 === 0) {
+                  loader.set(Math.round((y / S) * 100));
+                  await yieldNow();
+                }
+                const v = y / S;
+                for (let x = 0; x < S; x++) {
+                  const u = x / S;
+                  const n = fbm(u * m.fx, v * m.fy, m.octaves, seed);
+                  let p = n;
+                  if (m.pattern === 'wood') {
+                    p = 0.5 + 0.5 * Math.sin((v * m.fy + n * 6) * Math.PI * 2);
+                  } else if (m.pattern === 'weave') {
+                    const w = 0.5 + 0.5 * Math.sin(u * m.fx * Math.PI * 2) * Math.sin(v * m.fy * Math.PI * 2);
+                    p = 0.7 * w + 0.3 * n;
+                  }
+                  const i = (y * S + x) * 4;
+                  const shade = 0.78 + 0.44 * p;
+                  a[i] = br * shade;
+                  a[i + 1] = bg * shade;
+                  a[i + 2] = bb * shade;
+                  a[i + 3] = 255;
+
+                  const hv = 128 + (p - 0.5) * m.bump * 510;
+                  h[i] = h[i + 1] = h[i + 2] = hv;
+                  h[i + 3] = 255;
+
+                  const rv = (r0 + (r1 - r0) * (1 - p)) * 255;
+                  r[i] = r[i + 1] = r[i + 2] = rv;
+                  r[i + 3] = 255;
+                }
+              }
+
+              canvases.albedo.getContext('2d').putImageData(aImg, 0, 0);
+              canvases.height.getContext('2d').putImageData(hImg, 0, 0);
+              canvases.rough.getContext('2d').putImageData(rImg, 0, 0);
+              dirty.albedo = true;
+              dirty.rough = true;
+              bakeNormal();
+
+              material.metalness = m.metalness;
+              $('metal').value = m.metalness;
+              material.roughness = +$('roughScale').value;
+              toast(`${m.name} aplicado`);
+            });
+          }
+
           // ---------- Three.js ----------
-          const viewport = $('viewport');
+          const viewportEl = $('viewport');
           const renderer = new THREE.WebGLRenderer({ canvas: $('view3d'), antialias: true });
           renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
           renderer.outputColorSpace = THREE.SRGBColorSpace;
           renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
           const scene = new THREE.Scene();
-          scene.background = new THREE.Color(0x070a12);
+          scene.background = new THREE.Color(0x0b0d11);
           const pmrem = new THREE.PMREMGenerator(renderer);
           scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
@@ -553,17 +725,15 @@ jobs:
           const controls = new OrbitControls(camera, renderer.domElement);
           controls.enableDamping = true;
 
-          const grid = new THREE.GridHelper(10, 20, 0x00e5ff, 0x12324a);
+          const grid = new THREE.GridHelper(10, 20, 0x4f8cff, 0x262c38);
           grid.material.transparent = true;
-          grid.material.opacity = 0.35;
+          grid.material.opacity = 0.5;
           scene.add(grid);
 
-          const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+          const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
           keyLight.position.set(3, 5, 4);
           scene.add(keyLight);
-          const rim = new THREE.PointLight(0x00e5ff, 2, 0, 2);
-          rim.position.set(-3, 2, -3);
-          scene.add(rim);
+          scene.add(new THREE.HemisphereLight(0xffffff, 0x222833, 0.6));
 
           const modelGroup = new THREE.Group();
           scene.add(modelGroup);
@@ -574,114 +744,300 @@ jobs:
             normal: new THREE.CanvasTexture(canvases.normal)
           };
           textures.albedo.colorSpace = THREE.SRGBColorSpace;
-          const maxAniso = renderer.capabilities.getMaxAnisotropy();
-          Object.values(textures).forEach((t) => (t.anisotropy = maxAniso));
+          const aniso = renderer.capabilities.getMaxAnisotropy();
+          Object.values(textures).forEach((t) => (t.anisotropy = aniso));
 
           const material = new THREE.MeshStandardMaterial({
             map: textures.albedo,
             roughnessMap: textures.rough,
             roughness: 1,
             normalMap: textures.normal,
-            normalScale: new THREE.Vector2(1, 1),
             metalness: 0
           });
 
-          // ---------- UV ----------
-          function ensureUV(mesh, force = false) {
-            if (mesh.geometry.attributes.uv && !force) return;
+          // ---------- UV profesional por islas ----------
+          const COS_LIMIT = 0.75;
 
-            const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
-            g.computeBoundingBox();
-            const { min, max } = g.boundingBox;
-            const sx = max.x - min.x || 1;
-            const sy = max.y - min.y || 1;
-            const sz = max.z - min.z || 1;
+          function buildCharts(it, q) {
+            const { wp, F } = it;
+            const fn = new Float32Array(F * 3);
+            const fa = new Float32Array(F);
 
-            const pos = g.attributes.position;
-            const uv = new Float32Array(pos.count * 2);
-            const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
-            const ab = new THREE.Vector3(), ac = new THREE.Vector3(), n = new THREE.Vector3();
-            const tri = [a, b, c];
-
-            for (let i = 0; i < pos.count; i += 3) {
-              a.fromBufferAttribute(pos, i);
-              b.fromBufferAttribute(pos, i + 1);
-              c.fromBufferAttribute(pos, i + 2);
-              ab.subVectors(b, a);
-              ac.subVectors(c, a);
-              n.crossVectors(ab, ac);
-
-              const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
-              for (let k = 0; k < 3; k++) {
-                const p = tri[k];
-                let u, v;
-                if (ax >= ay && ax >= az) { u = (p.z - min.z) / sz; v = (p.y - min.y) / sy; }
-                else if (ay >= az)        { u = (p.x - min.x) / sx; v = (p.z - min.z) / sz; }
-                else                      { u = (p.x - min.x) / sx; v = (p.y - min.y) / sy; }
-                uv[(i + k) * 2] = u;
-                uv[(i + k) * 2 + 1] = v;
+            for (let f = 0; f < F; f++) {
+              const o = f * 9;
+              const ax = wp[o + 3] - wp[o], ay = wp[o + 4] - wp[o + 1], az = wp[o + 5] - wp[o + 2];
+              const bx = wp[o + 6] - wp[o], by = wp[o + 7] - wp[o + 1], bz = wp[o + 8] - wp[o + 2];
+              const cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
+              const len = Math.hypot(cx, cy, cz);
+              fa[f] = len * 0.5;
+              if (len > 1e-12) {
+                fn[f * 3] = cx / len;
+                fn[f * 3 + 1] = cy / len;
+                fn[f * 3 + 2] = cz / len;
               }
             }
 
-            g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-            if (!g.attributes.normal) g.computeVertexNormals();
-            mesh.geometry = g;
+            // Soldar vértices por posición para encontrar vecinos reales
+            const vmap = new Map();
+            const vid = new Int32Array(F * 3);
+            let nv = 0;
+            for (let c = 0; c < F * 3; c++) {
+              const key = Math.round(wp[c * 3] / q) + '|' + Math.round(wp[c * 3 + 1] / q) + '|' + Math.round(wp[c * 3 + 2] / q);
+              let id = vmap.get(key);
+              if (id === undefined) { id = nv++; vmap.set(key, id); }
+              vid[c] = id;
+            }
+            vmap.clear();
+
+            const adj = new Array(F);
+            for (let f = 0; f < F; f++) adj[f] = [];
+            const edges = new Map();
+            for (let f = 0; f < F; f++) {
+              for (let k = 0; k < 3; k++) {
+                const a = vid[f * 3 + k], b = vid[f * 3 + ((k + 1) % 3)];
+                if (a === b) continue;
+                const lo = Math.min(a, b), hi = Math.max(a, b);
+                const ek = lo * nv + hi;
+                const other = edges.get(ek);
+                if (other === undefined) edges.set(ek, f);
+                else {
+                  adj[f].push(other);
+                  adj[other].push(f);
+                  edges.delete(ek);
+                }
+              }
+            }
+            edges.clear();
+
+            // Crecimiento de regiones por similitud de normal
+            const chartOf = new Int32Array(F).fill(-1);
+            const groups = [];
+            for (let seed = 0; seed < F; seed++) {
+              if (chartOf[seed] !== -1) continue;
+              const sx = fn[seed * 3], sy = fn[seed * 3 + 1], sz = fn[seed * 3 + 2];
+              const id = groups.length;
+              const faces = [seed];
+              chartOf[seed] = id;
+              for (let qi = 0; qi < faces.length; qi++) {
+                const list = adj[faces[qi]];
+                for (let j = 0; j < list.length; j++) {
+                  const nb = list[j];
+                  if (chartOf[nb] !== -1) continue;
+                  const d = fn[nb * 3] * sx + fn[nb * 3 + 1] * sy + fn[nb * 3 + 2] * sz;
+                  if (d >= COS_LIMIT) {
+                    chartOf[nb] = id;
+                    faces.push(nb);
+                  }
+                }
+              }
+              groups.push(faces);
+            }
+
+            // Proyección de cada isla sobre su plano
+            const charts = [];
+            for (const faces of groups) {
+              let nx = 0, ny = 0, nz = 0;
+              for (const f of faces) {
+                const w = fa[f];
+                nx += fn[f * 3] * w;
+                ny += fn[f * 3 + 1] * w;
+                nz += fn[f * 3 + 2] * w;
+              }
+              let L = Math.hypot(nx, ny, nz);
+              if (L < 1e-12) {
+                nx = fn[faces[0] * 3]; ny = fn[faces[0] * 3 + 1]; nz = fn[faces[0] * 3 + 2];
+                L = Math.hypot(nx, ny, nz) || 1;
+              }
+              nx /= L; ny /= L; nz /= L;
+
+              const useX = Math.abs(nx) < 0.9;
+              const ax = useX ? 1 : 0, ay = useX ? 0 : 1;
+              let tx = -nz * ay, ty = nz * ax, tz = nx * ay - ny * ax;
+              const tl = Math.hypot(tx, ty, tz) || 1;
+              tx /= tl; ty /= tl; tz /= tl;
+              const bx = ny * tz - nz * ty, by = nz * tx - nx * tz, bz = nx * ty - ny * tx;
+
+              const uv2 = new Float32Array(faces.length * 6);
+              let minU = Infinity, minV = Infinity, maxU = -Infinity, maxV = -Infinity;
+              for (let i = 0; i < faces.length; i++) {
+                const f = faces[i];
+                for (let k = 0; k < 3; k++) {
+                  const c = (f * 3 + k) * 3;
+                  const x = wp[c], y = wp[c + 1], z = wp[c + 2];
+                  const u = x * tx + y * ty + z * tz;
+                  const v = x * bx + y * by + z * bz;
+                  const s = (i * 3 + k) * 2;
+                  uv2[s] = u;
+                  uv2[s + 1] = v;
+                  if (u < minU) minU = u;
+                  if (u > maxU) maxU = u;
+                  if (v < minV) minV = v;
+                  if (v > maxV) maxV = v;
+                }
+              }
+              for (let j = 0; j < uv2.length; j += 2) {
+                uv2[j] -= minU;
+                uv2[j + 1] -= minV;
+              }
+              charts.push({ faces, uv2, w: maxU - minU, h: maxV - minV });
+            }
+            return charts;
           }
 
-          function drawUV() {
-            const cv = canvases.uv;
-            const ctx = cv.getContext('2d');
-            ctx.fillStyle = '#05080f';
-            ctx.fillRect(0, 0, S, S);
+          async function unwrapModel(root) {
+            root.updateMatrixWorld(true);
+            const meshes = [];
+            root.traverse((o) => { if (o.isMesh && o.geometry?.attributes?.position) meshes.push(o); });
+            if (!meshes.length) throw new Error('El modelo no tiene mallas');
 
-            ctx.globalAlpha = 0.55;
-            ctx.drawImage(canvases.albedo, 0, 0, S, S);
-            ctx.globalAlpha = 1;
+            const v = new THREE.Vector3();
+            const items = [];
+            let minX = Infinity, minY = Infinity, minZ = Infinity;
+            let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
-            ctx.strokeStyle = 'rgba(0,229,255,0.12)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            for (let i = 0; i <= 8; i++) {
-              const p = (i * S) / 8;
-              ctx.moveTo(p, 0); ctx.lineTo(p, S);
-              ctx.moveTo(0, p); ctx.lineTo(S, p);
+            for (let mi = 0; mi < meshes.length; mi++) {
+              const mesh = meshes[mi];
+              const src = mesh.geometry;
+              const geo = src.index ? src.toNonIndexed() : src.clone();
+              const pos = geo.attributes.position;
+              const n = pos.count;
+              const wp = new Float32Array(n * 3);
+              for (let i = 0; i < n; i++) {
+                v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+                wp[i * 3] = v.x; wp[i * 3 + 1] = v.y; wp[i * 3 + 2] = v.z;
+                minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+                minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+                minZ = Math.min(minZ, v.z); maxZ = Math.max(maxZ, v.z);
+              }
+              items.push({ mesh, src, geo, wp, F: Math.floor(n / 3), uvArr: null });
+              if (mi % 3 === 2) {
+                loader.set(Math.round(10 * (mi + 1) / meshes.length), 'Leyendo mallas…');
+                await yieldNow();
+              }
             }
-            ctx.stroke();
 
-            const MAX_TRIS = 60000;
-            let tris = 0;
-            ctx.strokeStyle = 'rgba(0,229,255,0.9)';
-            ctx.lineWidth = 1.2;
+            const diag = Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) || 1;
+            const q = Math.max(diag * 1e-5, 1e-9);
+
+            const all = [];
+            for (let mi = 0; mi < items.length; mi++) {
+              const it = items[mi];
+              for (const ch of buildCharts(it, q)) {
+                ch.item = it;
+                all.push(ch);
+              }
+              loader.set(10 + Math.round(60 * (mi + 1) / items.length), 'Creando islas UV…');
+              await yieldNow();
+            }
+
+            loader.set(72, 'Acomodando islas…');
+            await yieldNow();
+
+            // Empaquetado tipo shelf con escala uniforme (misma densidad de texel)
+            let area = 0, maxSide = 0;
+            for (const ch of all) {
+              area += ch.w * ch.h;
+              maxSide = Math.max(maxSide, ch.w, ch.h);
+            }
+            const pad = Math.max(Math.sqrt(area) * 0.012, 1e-9);
+            let pArea = 0;
+            for (const ch of all) pArea += (ch.w + pad) * (ch.h + pad);
+            const L = Math.max(Math.sqrt(pArea) * 1.08, maxSide + pad);
+
+            all.sort((a, b) => b.h - a.h);
+            let x = 0, y = 0, row = 0, usedW = 0;
+            for (const ch of all) {
+              const w = ch.w + pad, h = ch.h + pad;
+              if (x > 0 && x + w > L) { x = 0; y += row; row = 0; }
+              ch.ox = x + pad * 0.5;
+              ch.oy = y + pad * 0.5;
+              x += w;
+              if (h > row) row = h;
+              if (x > usedW) usedW = x;
+            }
+            const scale = 1 / Math.max(usedW, y + row, 1e-9);
+
+            loader.set(88, 'Aplicando UV…');
+            await yieldNow();
+
+            for (const it of items) it.uvArr = new Float32Array(it.F * 6);
+            for (const ch of all) {
+              const arr = ch.item.uvArr;
+              for (let i = 0; i < ch.faces.length; i++) {
+                const f = ch.faces[i];
+                for (let k = 0; k < 3; k++) {
+                  const j = (f * 3 + k) * 2;
+                  const s = (i * 3 + k) * 2;
+                  arr[j] = (ch.ox + ch.uv2[s]) * scale;
+                  arr[j + 1] = (ch.oy + ch.uv2[s + 1]) * scale;
+                }
+              }
+            }
+
+            for (const it of items) {
+              const g = it.geo;
+              g.setAttribute('uv', new THREE.BufferAttribute(it.uvArr, 2));
+              if (!g.attributes.normal) g.computeVertexNormals();
+              it.mesh.geometry = g;
+              if (it.src !== g) it.src.dispose();
+            }
+            loader.set(100, 'Listo');
+          }
+
+          // ---------- Wireframe UV ----------
+          function drawWires(ctx, color, width) {
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = width;
             ctx.beginPath();
+            let budget = 300000;
             model?.traverse((o) => {
-              if (!o.isMesh) return;
+              if (!o.isMesh || budget <= 0) return;
               const uv = o.geometry.attributes.uv;
               if (!uv) return;
               const idx = o.geometry.index;
-              const n = idx ? idx.count : uv.count;
-              for (let i = 0; i < n; i += 3) {
-                if (tris++ > MAX_TRIS) return;
-                const a = idx ? idx.getX(i) : i;
-                const b = idx ? idx.getX(i + 1) : i + 1;
-                const c = idx ? idx.getX(i + 2) : i + 2;
-                ctx.moveTo(uv.getX(a) * S, (1 - uv.getY(a)) * S);
-                ctx.lineTo(uv.getX(b) * S, (1 - uv.getY(b)) * S);
-                ctx.lineTo(uv.getX(c) * S, (1 - uv.getY(c)) * S);
+              const count = idx ? idx.count : uv.count;
+              const ua = uv.array;
+              const ia = idx ? idx.array : null;
+              for (let i = 0; i + 2 < count && budget > 0; i += 3) {
+                budget--;
+                const a = ia ? ia[i] : i;
+                const b = ia ? ia[i + 1] : i + 1;
+                const c = ia ? ia[i + 2] : i + 2;
+                ctx.moveTo(ua[a * 2] * S, (1 - ua[a * 2 + 1]) * S);
+                ctx.lineTo(ua[b * 2] * S, (1 - ua[b * 2 + 1]) * S);
+                ctx.lineTo(ua[c * 2] * S, (1 - ua[c * 2 + 1]) * S);
                 ctx.closePath();
               }
             });
             ctx.stroke();
+            ctx.restore();
+          }
+
+          function drawOverlay() {
+            const ctx = overlay.getContext('2d');
+            ctx.clearRect(0, 0, S, S);
+            drawWires(ctx, 'rgba(255,255,255,0.32)', 1);
+          }
+
+          function makeLayoutCanvas() {
+            const c = document.createElement('canvas');
+            c.width = c.height = S;
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, S, S);
+            drawWires(ctx, '#ffffff', 1);
+            return c;
           }
 
           // ---------- Normal desde altura ----------
           function bakeNormal() {
-            const src = canvases.height.getContext('2d').getImageData(0, 0, S, S).data;
-            const ctx = canvases.normal.getContext('2d');
-            const out = ctx.createImageData(S, S);
+            const hd = canvases.height.getContext('2d').getImageData(0, 0, S, S).data;
+            const nctx = canvases.normal.getContext('2d');
+            const out = nctx.createImageData(S, S);
             const o = out.data;
-
             const h = new Float32Array(S * S);
-            for (let i = 0; i < S * S; i++) h[i] = src[i * 4] / 255;
+            for (let i = 0; i < S * S; i++) h[i] = hd[i * 4] / 255;
 
             const k = brush.normalStrength;
             for (let y = 0; y < S; y++) {
@@ -692,24 +1048,20 @@ jobs:
                 const xr = x < S - 1 ? x + 1 : S - 1;
                 const dx = (h[y * S + xr] - h[y * S + xl]) * k;
                 const dy = (h[yd * S + x] - h[yu * S + x]) * k;
-
-                let nx = -dx, ny = dy, nz = 1;
-                const inv = 1 / Math.hypot(nx, ny, nz);
-                nx *= inv; ny *= inv; nz *= inv;
-
+                const nx = -dx, ny = dy, nz = 1;
+                const inv = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
                 const i = (y * S + x) * 4;
-                o[i] = (nx * 0.5 + 0.5) * 255;
-                o[i + 1] = (ny * 0.5 + 0.5) * 255;
-                o[i + 2] = (nz * 0.5 + 0.5) * 255;
+                o[i] = (nx * inv * 0.5 + 0.5) * 255;
+                o[i + 1] = (ny * inv * 0.5 + 0.5) * 255;
+                o[i + 2] = (nz * inv * 0.5 + 0.5) * 255;
                 o[i + 3] = 255;
               }
             }
-            ctx.putImageData(out, 0, 0);
+            nctx.putImageData(out, 0, 0);
             dirty.normal = true;
           }
 
-          painters.height.onStroke = bakeNormal;
-          bakeNormal();
+          painters.height.onCommit = bakeNormal;
 
           // ---------- Modelo ----------
           function frame(obj) {
@@ -717,64 +1069,111 @@ jobs:
             const size = box.getSize(new THREE.Vector3());
             const center = box.getCenter(new THREE.Vector3());
             const r = Math.max(size.x, size.y, size.z, 0.01) / 2;
-
             controls.target.copy(center);
             camera.position.copy(center).add(new THREE.Vector3(r * 1.8, r * 1.2, r * 2.6));
             camera.near = r / 100;
             camera.far = r * 200;
             camera.updateProjectionMatrix();
-
             grid.position.y = box.min.y;
             grid.scale.setScalar(Math.max(r, 0.5) / 2);
             controls.update();
           }
 
-          function setModel(obj, name) {
+          function disposeTree(obj) {
+            obj.traverse((o) => o.geometry?.dispose?.());
+          }
+
+          function updateInfo() {
+            let meshes = 0, tris = 0;
+            model.traverse((o) => {
+              if (!o.isMesh) return;
+              meshes++;
+              const g = o.geometry;
+              tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+            });
+            $('info').textContent = `${modelName} · ${meshes} mallas · ${Math.round(tris).toLocaleString('es-MX')} tris`;
+          }
+
+          async function setModel(obj, name) {
             if (model) {
               modelGroup.remove(model);
-              model.traverse((o) => o.geometry?.dispose());
+              disposeTree(model);
             }
             model = obj;
             modelName = name;
             modelGroup.add(obj);
 
-            let meshes = 0, tris = 0;
+            let hasUV = true;
             obj.traverse((o) => {
               if (!o.isMesh) return;
-              ensureUV(o);
               o.material = material;
-              meshes++;
-              const g = o.geometry;
-              tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+              if (!o.geometry.attributes.uv) hasUV = false;
             });
 
             frame(obj);
-            $('info').textContent = `${name} · ${meshes} malla · ${Math.round(tris).toLocaleString()} tris`;
-            drawUV();
+            if (!hasUV) await unwrapModel(obj);
+            updateInfo();
+            drawOverlay();
+          }
+
+          async function reUnwrap() {
+            if (!model) return toast('Carga un modelo primero');
+            await busy('Desenrollando UV…', async () => {
+              await unwrapModel(model);
+              drawOverlay();
+              toast('UV regenerados');
+            });
           }
 
           const gltfLoader = new GLTFLoader();
           async function loadFile(file) {
-            toast('Cargando modelo…');
             const url = URL.createObjectURL(file);
             try {
-              const gltf = await gltfLoader.loadAsync(url);
-              setModel(gltf.scene, file.name.replace(/\.(glb|gltf)$/i, ''));
+              loader.show('Leyendo modelo…');
+              await frameTick();
+              const gltf = await gltfLoader.loadAsync(url, (ev) => {
+                if (ev.total) loader.set(Math.round((ev.loaded / ev.total) * 40), 'Leyendo modelo…');
+              });
+              loader.set(45, 'Preparando malla…');
+              await yieldNow();
+              await setModel(gltf.scene, file.name.replace(/\.(glb|gltf)$/i, ''));
               toast('Modelo listo');
             } finally {
+              loader.hide();
               URL.revokeObjectURL(url);
             }
           }
 
-          // Demo: caja sin UV para probar el auto-UV
-          setModel(
-            new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.6).deleteAttribute('uv'), material),
-            'demo_caja'
-          );
+          // ---------- Importar texturas ----------
+          function loadImage(file) {
+            return new Promise((res, rej) => {
+              const url = URL.createObjectURL(file);
+              const img = new Image();
+              img.onload = () => { URL.revokeObjectURL(url); res(img); };
+              img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('No se pudo leer la imagen')); };
+              img.src = url;
+            });
+          }
+
+          function drawCover(ctx, img) {
+            const s = Math.max(S / img.width, S / img.height);
+            const w = img.width * s, h = img.height * s;
+            ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+          }
+
+          async function importTexture(file) {
+            await busy('Importando textura…', async () => {
+              const img = await loadImage(file);
+              const ch = currentCh;
+              painters[ch]?.snapshot();
+              drawCover(canvases[ch].getContext('2d'), img);
+              if (ch === 'height') bakeNormal();
+              dirty[ch] = true;
+              toast(`Textura importada en ${CH_NAMES[ch]}`);
+            });
+          }
 
           // ---------- Exportar ----------
-          function safeName(s) { return s.replace(/[^\w\-]+/g, '_') || 'modelo'; }
-
           function blobToBase64(blob) {
             return new Promise((res, rej) => {
               const r = new FileReader();
@@ -807,67 +1206,78 @@ jobs:
 
           async function exportGLB() {
             if (!model) return toast('Carga un modelo primero');
-            toast('Generando GLB…');
-            const exporter = new GLTFExporter();
-            const buf = await new Promise((res, rej) =>
-              exporter.parse(model, res, rej, { binary: true, embedImages: true, maxTextureSize: S })
-            );
-            await saveBlob(`${safeName(modelName)}.glb`, new Blob([buf], { type: 'model/gltf-binary' }));
-            toast('GLB exportado');
+            await busy('Generando GLB…', async () => {
+              const exporter = new GLTFExporter();
+              const buf = await new Promise((res, rej) =>
+                exporter.parse(model, res, rej, { binary: true, embedImages: true, maxTextureSize: S })
+              );
+              await saveBlob(`${safeName(modelName)}.glb`, new Blob([buf], { type: 'model/gltf-binary' }));
+              toast('GLB exportado');
+            });
           }
 
           async function exportZIP() {
-            toast('Empaquetando mapas…');
-            const zip = new JSZip();
-            const files = {
-              'albedo.png': canvases.albedo,
-              'height.png': canvases.height,
-              'roughness.png': canvases.rough,
-              'normal.png': canvases.normal,
-              'uv_layout.png': canvases.uv
-            };
-            for (const [name, cv] of Object.entries(files)) {
-              zip.file(name, await canvasBlob(cv));
-            }
-            zip.file(
-              'README.txt',
-              'UV Studio - mapas 1024x1024 PNG\n' +
-              'albedo.png: color base\n' +
-              'normal.png: normal map (convención OpenGL, +Y arriba)\n' +
-              'roughness.png: escala de grises, blanco = más rugoso\n' +
-              'height.png: altura usada para generar la normal\n' +
-              'uv_layout.png: layout UV del modelo\n'
-            );
-            const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-            await saveBlob(`${safeName(modelName)}_maps.zip`, blob);
-            toast('ZIP exportado');
-          }
-
-          // ---------- Tabs y herramientas ----------
-          const cur = () => painters[currentTab];
-
-          function setTab(tab) {
-            currentTab = tab;
-            document.querySelectorAll('.tabs button').forEach((b) =>
-              b.classList.toggle('active', b.dataset.tab === tab)
-            );
-            for (const [key, cv] of Object.entries(canvases)) cv.classList.toggle('show', key === tab);
-            document.querySelectorAll('[data-show]').forEach((el) => {
-              el.hidden = !el.dataset.show.split(' ').includes(tab);
+            await busy('Empaquetando mapas…', async () => {
+              const zip = new JSZip();
+              const files = {
+                'albedo.png': canvases.albedo,
+                'height.png': canvases.height,
+                'roughness.png': canvases.rough,
+                'normal.png': canvases.normal,
+                'uv_layout.png': makeLayoutCanvas()
+              };
+              for (const [name, cv] of Object.entries(files)) {
+                zip.file(name, await canvasBlob(cv));
+              }
+              zip.file(
+                'README.txt',
+                'UV Studio - mapas 1024x1024 PNG\n' +
+                'albedo.png: color base\n' +
+                'normal.png: normal map (convención OpenGL, +Y arriba)\n' +
+                'roughness.png: blanco = más rugoso\n' +
+                'height.png: altura usada para generar la normal\n' +
+                'uv_layout.png: layout UV del modelo\n' +
+                `metalness: ${material.metalness}\n`
+              );
+              const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+              await saveBlob(`${safeName(modelName)}_maps.zip`, blob);
+              toast('ZIP exportado');
             });
-            $('editorTitle').textContent = TITLES[tab];
-            if (tab === 'uv') drawUV();
-            syncTools();
           }
 
+          // ---------- UI ----------
           function syncTools() {
             document.querySelectorAll('[data-tool]').forEach((b) =>
               b.classList.toggle('on', b.dataset.tool === brush.tool)
             );
           }
 
-          document.querySelectorAll('.tabs button').forEach((b) =>
-            b.addEventListener('click', () => setTab(b.dataset.tab))
+          function setChannel(ch) {
+            currentCh = ch;
+            document.querySelectorAll('[data-ch]').forEach((b) =>
+              b.classList.toggle('active', b.dataset.ch === ch)
+            );
+            for (const [k, c] of Object.entries(canvases)) c.classList.toggle('show', k === ch);
+            $('chTitle').textContent = CH_NAMES[ch];
+            document.querySelectorAll('[data-show]').forEach((el) => {
+              el.hidden = !el.dataset.show.split(' ').includes(ch);
+            });
+            syncTools();
+          }
+
+          function buildMaterialGrid() {
+            const grid = $('matGrid');
+            for (const m of MATERIALS) {
+              const b = document.createElement('button');
+              b.className = 'mat';
+              b.innerHTML = `<span class="sw" style="background:${m.base}"></span><span>${m.name}</span>`;
+              b.addEventListener('click', () => applyMaterial(m));
+              grid.appendChild(b);
+            }
+          }
+
+          document.querySelectorAll('[data-ch]').forEach((b) =>
+            b.addEventListener('click', () => setChannel(b.dataset.ch))
           );
           document.querySelectorAll('[data-tool]').forEach((b) =>
             b.addEventListener('click', () => { brush.tool = b.dataset.tool; syncTools(); })
@@ -879,66 +1289,78 @@ jobs:
           $('gray').addEventListener('input', (e) => (brush.gray = +e.target.value));
           $('strength').addEventListener('input', (e) => (brush.normalStrength = +e.target.value));
           $('strength').addEventListener('change', bakeNormal);
+          $('metal').addEventListener('input', (e) => (material.metalness = +e.target.value));
+          $('roughScale').addEventListener('input', (e) => (material.roughness = +e.target.value));
 
-          on('btnUndo', 'click', () => cur()?.undo());
-          on('btnClear', 'click', () => cur()?.clear());
-          on('btnFill', 'click', () => { const p = cur(); if (p) p.fill(p.color()); });
-          on('btnNoise', 'click', () => cur()?.noise(40));
-          on('btnBake', 'click', () => bakeNormal());
-          on('btnUVRefresh', 'click', () => drawUV());
+          $('btnUndo').addEventListener('click', () => painters[currentCh]?.undo());
+          $('btnClear').addEventListener('click', () => painters[currentCh]?.clear());
+          $('btnFill').addEventListener('click', () => {
+            const p = painters[currentCh];
+            if (p) p.fill(p.color());
+          });
+          $('btnBake').addEventListener('click', bakeNormal);
+          $('btnUnwrap').addEventListener('click', reUnwrap);
+          $('btnGLB').addEventListener('click', exportGLB);
+          $('btnZIP').addEventListener('click', exportZIP);
 
-          on('btnUnwrap', 'click', () => {
-            if (!model) return toast('Carga un modelo');
-            model.traverse((o) => { if (o.isMesh) ensureUV(o, true); });
-            drawUV();
-            toast('UV regenerados');
+          $('btnOverlay').addEventListener('click', (e) => {
+            brush.showUV = !brush.showUV;
+            stage.classList.toggle('no-uv', !brush.showUV);
+            e.currentTarget.classList.toggle('on', brush.showUV);
           });
 
-          on('btnGLB', 'click', exportGLB);
-          on('btnZIP', 'click', exportZIP);
-
-          $('fileIn').addEventListener('change', (e) => {
+          $('fileIn').addEventListener('change', async (e) => {
             const f = e.target.files?.[0];
             e.target.value = '';
-            if (f) loadFile(f).catch((err) => { console.error(err); toast('No se pudo leer el archivo'); });
+            if (!f) return;
+            try {
+              await loadFile(f);
+            } catch (err) {
+              console.error(err);
+              toast('No se pudo abrir: ' + (err.message || err));
+            }
           });
 
-          setTab('albedo');
-          syncTools();
+          $('imgIn').addEventListener('change', async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (f) await importTexture(f);
+          });
 
-          // ---------- Render loop ----------
+          // ---------- Arranque ----------
+          bakeNormal();
+          buildMaterialGrid();
+          setChannel('albedo');
+          setModel(
+            new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.6).deleteAttribute('uv'), material),
+            'demo_caja'
+          ).catch((err) => console.error(err));
+
+          // ---------- Render ----------
           function resize() {
-            const w = viewport.clientWidth, h = viewport.clientHeight;
+            const w = viewportEl.clientWidth, h = viewportEl.clientHeight;
             if (!w || !h) return;
             renderer.setSize(w, h, false);
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
           }
-          new ResizeObserver(resize).observe(viewport);
+          new ResizeObserver(resize).observe(viewportEl);
           resize();
 
           function tick() {
             requestAnimationFrame(tick);
-            if (dirty.albedo) { textures.albedo.needsUpdate = true; dirty.albedo = false; }
-            if (dirty.rough)  { textures.rough.needsUpdate = true;  dirty.rough = false; }
-            if (dirty.normal) { textures.normal.needsUpdate = true; dirty.normal = false; }
+            for (const k of ['albedo', 'rough', 'normal']) {
+              if (dirty[k]) {
+                textures[k].needsUpdate = true;
+                dirty[k] = false;
+              }
+            }
             controls.update();
             renderer.render(scene, camera);
           }
           tick();
 
           document.addEventListener('contextmenu', (e) => e.preventDefault());
-          EOF
-
-          cat > .github/workflows/android-debug.yml <<'EOF'
-          # Workflow de referencia generado por el script principal
-          name: placeholder
-          on: workflow_dispatch
-          jobs:
-            noop:
-              runs-on: ubuntu-latest
-              steps:
-                - run: echo "ok"
           EOF
 
           echo "Proyecto generado:"
@@ -952,7 +1374,20 @@ jobs:
 
       - name: Crear proyecto Android
         run: |
-          if [ ! -d android ]; then npx cap add android; fi
+          rm -rf android
+          npx cap add android
+
+      - name: Forzar orientación horizontal
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          p = pathlib.Path('android/app/src/main/AndroidManifest.xml')
+          s = p.read_text()
+          if 'screenOrientation' not in s:
+              s = s.replace('android:name=".MainActivity"', 'android:name=".MainActivity" android:screenOrientation="sensorLandscape"', 1)
+              p.write_text(s)
+          print('Manifest actualizado')
+          PY
 
       - name: Sincronizar con Android
         run: npx cap sync android
