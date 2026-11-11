@@ -866,7 +866,10 @@ jobs:
           mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_HOME"
           yes | $SDKMANAGER --licenses > /dev/null 2>&1 || true
-          $SDKMANAGER "platform-tools" "build-tools;34.0.0" "platforms;android-34"
+          $SDKMANAGER "platform-tools" "build-tools;34.0.0" "platforms;android-34" \
+            "cmdline-tools;latest" "cmake;3.10.2.4988404" "ndk;23.2.8568313"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "GODOT_ANDROID_SDK_PATH=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "GODOT_JAVA_SDK_PATH=$JAVA_HOME" >> "$GITHUB_ENV"
 
@@ -900,7 +903,8 @@ jobs:
           mkdir -p build
           ./godot --headless --import
           set -o pipefail
-          ./godot --headless --export-debug "Android" build/AmyrPasillo.apk 2>&1 | tee export.log
+          ./godot --headless --verbose --export-debug "Android" build/AmyrPasillo.apk 2>&1 | tee export.log
+          test -s build/AmyrPasillo.apk
 
       - name: Diagnóstico legible si falla
         if: failure()
@@ -909,9 +913,11 @@ jobs:
           if [ -f export.log ]; then cat export.log; else echo "No se generó export.log"; fi
           echo "=== Plantillas de exportación ==="
           ls -la "$HOME/.local/share/godot/export_templates/4.3.stable" || true
+          find "$HOME/.local/share/godot/export_templates/4.3.stable" -maxdepth 1 -type f -printf '%f %s bytes\n' || true
           echo "=== SDK de Android ==="
           ls "$HOME/android-sdk" || true
-          ls "$HOME/android-sdk/build-tools" "$HOME/android-sdk/platforms" || true
+          ls "$HOME/android-sdk/build-tools" "$HOME/android-sdk/platforms" \
+            "$HOME/android-sdk/cmake" "$HOME/android-sdk/ndk" || true
           echo "=== Java ==="
           echo "JAVA_HOME=$JAVA_HOME"
           echo "=== Configuración del editor ==="
