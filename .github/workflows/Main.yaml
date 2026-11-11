@@ -22,11 +22,20 @@ jobs:
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      - name: Verificar modelo FBX
+      - name: Localizar y mover modelo FBX
         run: |
+          mkdir -p assets/models
           if [ ! -f assets/models/Amyr.fbx ]; then
-            echo "::error::Falta assets/models/Amyr.fbx. Súbelo al repositorio."
-            exit 1
+            FOUND=$(find . -iname "*amyr*.fbx" -not -path "./.git/*" | head -n 1)
+            if [ -z "$FOUND" ]; then
+              FOUND=$(find . -iname "*.fbx" -not -path "./.git/*" | head -n 1)
+            fi
+            if [ -z "$FOUND" ]; then
+              echo "::error::No hay ningún archivo .fbx en el repositorio. Sube Amyr.fbx a main."
+              exit 1
+            fi
+            cp "$FOUND" assets/models/Amyr.fbx
+            echo "Modelo encontrado en: $FOUND"
           fi
 
       - name: Escribir el juego desde este YAML
