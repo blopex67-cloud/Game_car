@@ -35,7 +35,7 @@ jobs:
           {
             "name": "uv-studio",
             "private": true,
-            "version": "2.0.0",
+            "version": "3.0.0",
             "type": "module",
             "scripts": {
               "dev": "vite",
@@ -61,7 +61,7 @@ jobs:
             base: './',
             build: {
               outDir: 'dist',
-              chunkSizeWarningLimit: 2000
+              chunkSizeWarningLimit: 3000
             }
           };
           EOF
@@ -75,7 +75,7 @@ jobs:
               "androidScheme": "https"
             },
             "android": {
-              "backgroundColor": "#0f1115"
+              "backgroundColor": "#0e1014"
             }
           }
           EOF
@@ -98,93 +98,171 @@ jobs:
             <title>UV Studio</title>
           </head>
           <body>
-            <div class="app">
 
-              <aside class="panel side">
-                <div class="brand">UV Studio <small>v2</small></div>
-
-                <div class="group">
-                  <div class="gtitle">Archivo</div>
-                  <label class="btn" for="fileIn">Abrir modelo</label>
-                  <input id="fileIn" type="file" accept=".glb,.gltf" hidden />
-                  <label class="btn" for="imgIn">Importar textura</label>
-                  <input id="imgIn" type="file" accept="image/*" hidden />
-                  <button class="btn" id="btnUnwrap">Re-UV</button>
-                  <div class="grid2">
-                    <button class="btn primary" id="btnGLB">GLB</button>
-                    <button class="btn primary" id="btnZIP">ZIP</button>
+            <!-- ===== Pantalla de proyectos ===== -->
+            <section id="screenProjects" class="screen">
+              <header class="top">
+                <div class="brand">UV Studio <small>v3</small></div>
+                <div class="top-actions">
+                  <button class="btn ghost" id="btnHelp">Ayuda</button>
+                  <label class="btn primary" for="fileIn">+ Nuevo proyecto</label>
+                </div>
+              </header>
+              <main class="proj-main">
+                <div class="empty" id="projEmpty">
+                  <h2>Aún no tienes proyectos</h2>
+                  <p>Importa un modelo GLB, GLTF o FBX para empezar a crear sus UV, texturas y materiales.</p>
+                  <div class="row-btns center">
+                    <label class="btn primary" for="fileIn">Importar modelo</label>
+                    <button class="btn" id="btnDemo">Usar caja de prueba</button>
                   </div>
                 </div>
-
-                <div class="group">
-                  <div class="gtitle">Canal</div>
-                  <div class="grid2">
-                    <button class="tab active" data-ch="albedo">Color</button>
-                    <button class="tab" data-ch="height">Altura</button>
-                    <button class="tab" data-ch="rough">Rugosa</button>
-                    <button class="tab" data-ch="normal">Normal</button>
-                  </div>
-                </div>
-
-                <div class="group">
-                  <div class="gtitle">Herramientas</div>
-                  <div class="grid2">
-                    <button class="chip" data-tool="brush">Pincel</button>
-                    <button class="chip" data-tool="eraser">Borrador</button>
-                    <button class="chip" id="btnFill">Relleno</button>
-                    <button class="chip" id="btnUndo">Deshacer</button>
-                  </div>
-                  <button class="chip" id="btnClear">Limpiar canal</button>
-                  <button class="chip on" id="btnOverlay">UV visible</button>
-                </div>
-
-                <div class="group" data-show="albedo height rough">
-                  <div class="row">Tamaño <input type="range" id="size" min="1" max="200" value="24" /></div>
-                  <div class="row">Opacidad <input type="range" id="opacity" min="5" max="100" value="100" /></div>
-                </div>
-
-                <div class="group" data-show="albedo">
-                  <div class="row">Color <input type="color" id="color" value="#9aa4b2" /></div>
-                </div>
-
-                <div class="group" data-show="height rough">
-                  <div class="row">Valor <input type="range" id="gray" min="0" max="255" value="128" /></div>
-                </div>
-
-                <div class="group" data-show="normal">
-                  <div class="row">Fuerza <input type="range" id="strength" min="0.5" max="12" step="0.1" value="4" /></div>
-                  <button class="btn" id="btnBake">Recalcular normal</button>
-                </div>
-              </aside>
-
-              <main class="panel editor">
-                <div class="editor-head">
-                  <span id="chTitle">Color</span>
-                  <span class="hint">Pinta sobre el UV</span>
-                </div>
-                <div class="canvas-area">
-                  <div class="stage" id="stage"></div>
-                </div>
+                <div class="grid-cards" id="projList" hidden></div>
               </main>
+            </section>
 
-              <section class="right">
-                <div class="panel viewport" id="viewport">
-                  <canvas id="view3d"></canvas>
-                  <div class="hud-info" id="info">—</div>
+            <!-- ===== Editor ===== -->
+            <section id="screenEditor" class="screen" hidden>
+              <header class="top">
+                <button class="btn ghost" id="btnBack">← Proyectos</button>
+                <div class="proj-name" id="projName">—</div>
+                <div class="top-actions">
+                  <label class="btn" for="imgIn">Importar textura</label>
+                  <button class="btn" id="btnFocus">Enfocar UV</button>
+                  <button class="btn" id="btnReuv">Re-UV</button>
+                  <button class="btn" id="btnHelp2">Ayuda</button>
+                  <button class="btn primary" id="btnGLB">GLB</button>
+                  <button class="btn primary" id="btnZIP">ZIP</button>
                 </div>
-                <div class="panel materials">
-                  <div class="gtitle">Materiales</div>
-                  <div class="mat-grid" id="matGrid"></div>
-                  <div class="mat-sliders">
-                    <div class="row">Metálico <input type="range" id="metal" min="0" max="1" step="0.01" value="0" /></div>
-                    <div class="row">Rugosidad <input type="range" id="roughScale" min="0" max="1" step="0.01" value="1" /></div>
+              </header>
+
+              <div class="body" id="body">
+                <aside class="panel tools">
+                  <div>
+                    <div class="gtitle">Canal</div>
+                    <div class="seg" style="margin-top:6px">
+                      <button data-ch="albedo" class="active">Color</button>
+                      <button data-ch="height">Altura</button>
+                      <button data-ch="rough">Rugosa</button>
+                      <button data-ch="normal">Normal</button>
+                    </div>
                   </div>
+
+                  <div>
+                    <div class="gtitle">Herramientas</div>
+                    <div class="grid3" style="margin-top:6px">
+                      <button class="tool" data-tool="brush">Pincel</button>
+                      <button class="tool" data-tool="eraser">Borrar</button>
+                      <button class="tool" data-tool="pan">Mover</button>
+                      <button class="tool" id="btnFill">Relleno</button>
+                      <button class="tool" id="btnUndo">Deshacer</button>
+                      <button class="tool" id="btnClear">Limpiar</button>
+                    </div>
+                  </div>
+
+                  <div class="slider" data-show="albedo height rough">
+                    <span>Tamaño: <b id="sizeV">24</b></span>
+                    <input type="range" id="size" min="2" max="160" value="24" />
+                  </div>
+                  <div class="slider" data-show="albedo height rough">
+                    <span>Opacidad: <b id="opV">100</b>%</span>
+                    <input type="range" id="opacity" min="5" max="100" value="100" />
+                  </div>
+
+                  <div class="color-block" data-show="albedo">
+                    <div class="gtitle">Color</div>
+                    <div class="wheel-row">
+                      <canvas id="wheel" width="180" height="180"></canvas>
+                      <div id="colorPrev"></div>
+                    </div>
+                    <div class="slider">
+                      <span>Brillo</span>
+                      <input type="range" id="bright" min="0" max="1" step="0.01" value="0.9" />
+                    </div>
+                    <div class="swatches" id="swatches"></div>
+                  </div>
+
+                  <div class="slider" data-show="height rough">
+                    <span>Valor: <b id="grayV">128</b></span>
+                    <input type="range" id="gray" min="0" max="255" value="128" />
+                  </div>
+
+                  <div class="slider" data-show="normal">
+                    <span>Fuerza de relieve: <b id="strV">4</b></span>
+                    <input type="range" id="strength" min="0.5" max="12" step="0.1" value="4" />
+                    <button class="tool" id="btnBake" style="margin-top:6px">Recalcular normal</button>
+                  </div>
+
+                  <label class="toggle">
+                    <input type="checkbox" id="showUV" checked />
+                    Mostrar líneas UV
+                  </label>
+                </aside>
+
+                <main class="panel editor">
+                  <div class="editor-head">
+                    <span id="chTitle">Color</span>
+                    <span class="hint" id="hintTxt">Un dedo pinta · dos dedos mueven y hacen zoom</span>
+                    <span class="zoom" id="zoomLbl">100%</span>
+                    <button class="chip" id="btnFit">Ajustar</button>
+                  </div>
+                  <div class="wrap" id="wrap">
+                    <div class="stage" id="stage"></div>
+                  </div>
+                </main>
+
+                <section class="right">
+                  <div class="panel viewport" id="viewport">
+                    <canvas id="view3d"></canvas>
+                    <div class="hud-info" id="info">—</div>
+                  </div>
+                  <div class="panel materials">
+                    <div class="gtitle">Materiales realistas</div>
+                    <div class="mat-grid" id="matGrid"></div>
+                    <div class="mat-sliders">
+                      <div class="slider">
+                        <span>Metálico</span>
+                        <input type="range" id="metal" min="0" max="1" step="0.01" value="0" />
+                      </div>
+                      <div class="slider">
+                        <span>Rugosidad</span>
+                        <input type="range" id="roughScale" min="0" max="1" step="0.01" value="1" />
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </section>
+
+            <!-- ===== Tutorial ===== -->
+            <div class="overlay" id="tutorial" hidden>
+              <div class="box">
+                <h2 class="tut-title" id="tutTitle"></h2>
+                <p id="tutText"></p>
+                <div class="dots" id="tutDots"></div>
+                <div class="row-btns">
+                  <button class="btn ghost" id="tutSkip">Saltar</button>
+                  <button class="btn" id="tutPrev">Anterior</button>
+                  <button class="btn primary" id="tutNext">Siguiente</button>
                 </div>
-              </section>
+              </div>
             </div>
 
-            <div class="loader" id="loader" hidden>
-              <div class="loader-box">
+            <!-- ===== Modal ===== -->
+            <div class="overlay" id="modal" hidden>
+              <div class="box">
+                <h3 id="mTitle"></h3>
+                <p id="mText"></p>
+                <input id="mInput" class="text" hidden />
+                <div class="row-btns">
+                  <button class="btn" id="mCancel">Cancelar</button>
+                  <button class="btn primary" id="mOk">Aceptar</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="overlay" id="loader" hidden>
+              <div class="box loader-box">
                 <div class="spinner"></div>
                 <div id="loaderText">Cargando…</div>
                 <div class="bar"><div id="loaderBar"></div></div>
@@ -192,6 +270,10 @@ jobs:
             </div>
 
             <div class="toast" id="toast"></div>
+
+            <input id="fileIn" type="file" accept=".glb,.gltf,.fbx,application/octet-stream,model/gltf-binary,model/gltf+json" hidden />
+            <input id="imgIn" type="file" accept="image/*" hidden />
+
             <script type="module" src="/src/main.js"></script>
           </body>
           </html>
@@ -199,13 +281,14 @@ jobs:
 
           cat > src/style.css <<'EOF'
           :root {
-            --bg: #0f1115;
-            --panel: #16191f;
-            --panel-2: #1d2129;
-            --border: #2a303b;
-            --text: #e7e9ee;
-            --muted: #8a929f;
+            --bg: #0e1014;
+            --panel: #171a21;
+            --panel2: #1e222b;
+            --border: #2b313c;
+            --text: #e8eaef;
+            --muted: #8d95a3;
             --accent: #4f8cff;
+            --danger: #e5484d;
           }
 
           * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -215,196 +298,235 @@ jobs:
             height: 100%;
             background: var(--bg);
             color: var(--text);
-            font: 13px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            font: 14px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
             overflow: hidden;
             user-select: none;
             -webkit-user-select: none;
           }
 
-          .app {
-            height: 100%;
-            display: grid;
-            grid-template-columns: 172px minmax(0, 1fr) minmax(0, 1fr);
-            gap: 8px;
-            padding: calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
+          button { font: inherit; cursor: pointer; }
+
+          .screen {
+            position: fixed; inset: 0;
+            display: flex; flex-direction: column;
+            background: var(--bg);
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
           }
+
+          .top {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+          }
+          .brand { font-weight: 700; font-size: 17px; }
+          .brand small { color: var(--muted); font-weight: 500; font-size: 12px; }
+          .proj-name {
+            font-weight: 600; color: var(--muted);
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            max-width: 28vw;
+          }
+          .top-actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+          .btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-height: 38px; padding: 8px 12px;
+            border-radius: 9px; border: 1px solid var(--border);
+            background: var(--panel2); color: var(--text);
+            font-weight: 600; font-size: 13px; text-align: center;
+          }
+          .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+          .btn.ghost { background: transparent; }
+          .btn.danger { background: transparent; color: #ff8a8d; border-color: #5a2a2c; }
+          .btn:disabled { opacity: .4; }
+          .btn:active, .tool:active, .mat:active, .seg button:active, .chip:active { transform: scale(.98); }
+
+          .row-btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+          .row-btns .btn.ghost { margin-right: auto; }
+          .row-btns.center { justify-content: center; }
+
+          /* ---------- Proyectos ---------- */
+          .proj-main { flex: 1; overflow: auto; padding: 16px; }
+          .empty {
+            text-align: center; margin: 10vh auto 0; max-width: 440px;
+            display: flex; flex-direction: column; gap: 12px; align-items: center;
+            color: var(--muted);
+          }
+          .empty h2 { color: var(--text); font-size: 20px; }
+          .grid-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+            gap: 12px;
+          }
+          .card {
+            background: var(--panel); border: 1px solid var(--border);
+            border-radius: 12px; overflow: hidden;
+            display: flex; flex-direction: column;
+          }
+          .thumb { aspect-ratio: 4 / 3; background: #0a0c10; }
+          .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+          .meta { padding: 10px 12px 0; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+          .meta b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .meta small { color: var(--muted); }
+          .card-actions { display: flex; gap: 6px; padding: 10px 12px 12px; flex-wrap: wrap; }
+          .card-actions .btn { flex: 1; min-height: 36px; padding: 6px 8px; font-size: 12px; }
+
+          /* ---------- Editor ---------- */
+          .body {
+            flex: 1; min-height: 0;
+            display: grid;
+            grid-template-columns: 240px minmax(0, 1fr) 300px;
+            gap: 8px; padding: 8px;
+          }
+          .body.focus { grid-template-columns: minmax(0, 1fr); }
+          .body.focus .tools, .body.focus .right { display: none; }
 
           .panel {
             background: var(--panel);
             border: 1px solid var(--border);
             border-radius: 12px;
-            min-height: 0;
+            min-height: 0; min-width: 0;
           }
 
-          /* ---------- Sidebar ---------- */
-          .side {
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
+          .tools {
+            padding: 12px;
+            display: flex; flex-direction: column; gap: 14px;
             overflow-y: auto;
           }
-          .brand { font-weight: 700; font-size: 15px; padding: 2px 2px 0; }
-          .brand small { color: var(--muted); font-weight: 500; font-size: 11px; }
-          .group { display: flex; flex-direction: column; gap: 6px; }
-          .gtitle {
-            font-size: 11px; color: var(--muted);
-            text-transform: uppercase; letter-spacing: .08em;
-            padding: 0 2px;
-          }
-          .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+          .gtitle { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 
-          .btn, .tab, .chip {
-            font: inherit; font-weight: 600; font-size: 12px;
-            color: var(--text);
-            background: var(--panel-2);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 8px 6px;
-            text-align: center;
-            cursor: pointer;
-            transition: background .15s, border-color .15s;
+          .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+          .seg button, .tool {
+            background: var(--panel2); border: 1px solid var(--border);
+            color: var(--text); border-radius: 9px;
+            padding: 8px 6px; font-weight: 600; font-size: 13px; min-height: 42px;
           }
-          .btn:active, .tab:active, .chip:active { transform: scale(.98); }
-          .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-          .tab.active { border-color: var(--accent); background: rgba(79, 140, 255, .14); color: #c9dcff; }
-          .chip.on { border-color: var(--accent); color: #c9dcff; }
-          .chip[data-tool].on { background: rgba(79, 140, 255, .14); }
+          .seg button.active, .tool.on {
+            border-color: var(--accent);
+            background: rgba(79, 140, 255, .16);
+            color: #cfe0ff;
+          }
+          .grid3 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
-          .row {
-            display: flex; flex-direction: column; gap: 4px;
-            font-size: 12px; color: var(--muted);
+          .slider { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+          .slider input[type="range"] { width: 100%; accent-color: var(--accent); height: 26px; }
+          .slider b { color: var(--text); font-weight: 600; }
+
+          .color-block { display: flex; flex-direction: column; gap: 10px; }
+          .wheel-row { display: flex; gap: 10px; align-items: center; }
+          #wheel { width: 150px; height: 150px; flex: 0 0 auto; touch-action: none; cursor: crosshair; }
+          #colorPrev {
+            flex: 1; height: 56px; border-radius: 9px;
+            border: 1px solid var(--border); background: #b8bcc4;
           }
-          .row input[type="range"] { width: 100%; accent-color: var(--accent); }
-          .row input[type="color"] {
-            width: 100%; height: 30px;
-            border: 1px solid var(--border); border-radius: 8px;
-            background: none; padding: 2px;
+          .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+          .swatches button {
+            aspect-ratio: 1; border-radius: 7px;
+            border: 1px solid rgba(255, 255, 255, .15); padding: 0;
           }
 
-          /* ---------- Editor ---------- */
-          .editor {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            padding: 10px;
+          .toggle { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+
+          .editor { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+          .editor-head { display: flex; align-items: center; gap: 10px; font-weight: 600; min-height: 32px; }
+          .hint { color: var(--muted); font-weight: 500; font-size: 12px; margin-left: auto; }
+          .zoom { color: var(--muted); font-size: 12px; min-width: 40px; text-align: right; }
+          .chip {
+            background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+            border-radius: 8px; padding: 6px 10px; font-weight: 600; font-size: 12px;
           }
-          .editor-head {
-            display: flex; justify-content: space-between; align-items: center;
-            font-weight: 600;
+
+          .wrap {
+            flex: 1; min-height: 0; position: relative; overflow: hidden;
+            background: #0a0c10; border: 1px solid var(--border); border-radius: 8px;
+            touch-action: none;
           }
-          .hint { font-size: 11px; color: var(--muted); font-weight: 500; }
-          .canvas-area {
-            flex: 1; min-height: 0;
-            display: flex; justify-content: center; align-items: center;
-          }
-          .stage {
-            position: relative;
-            height: 100%;
-            aspect-ratio: 1 / 1;
-            max-width: 100%;
-            background: #0b0d11;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            overflow: hidden;
-          }
+          .stage { position: absolute; transform-origin: 0 0; }
           .stage canvas {
             position: absolute; inset: 0;
             width: 100%; height: 100%;
             display: none;
-            touch-action: none;
           }
           .stage canvas.show { display: block; }
-          .stage canvas.overlay { display: block; z-index: 1; pointer-events: none; }
-          .stage.no-uv canvas.overlay { display: none; }
+          .stage canvas.overlay { display: block; pointer-events: none; }
+          .stage canvas.overlay.hide { display: none !important; }
 
-          /* ---------- Right column ---------- */
-          .right {
-            display: flex; flex-direction: column; gap: 8px; min-height: 0;
-          }
-          .viewport {
-            position: relative;
-            flex: 1.4;
-            min-height: 0;
-            overflow: hidden;
-            background: #0b0d11;
-          }
+          .right { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
+          .viewport { position: relative; flex: 1.2; min-height: 0; overflow: hidden; background: #0a0c10; }
           .viewport canvas {
             position: absolute; inset: 0;
             width: 100%; height: 100%;
-            display: block;
-            touch-action: none;
+            display: block; touch-action: none;
           }
           .hud-info {
             position: absolute; left: 8px; top: 8px;
             font-size: 11px; color: var(--muted);
-            background: rgba(15, 17, 21, .75);
-            padding: 3px 7px; border-radius: 6px;
+            background: rgba(10, 12, 16, .8);
+            padding: 3px 8px; border-radius: 6px;
             pointer-events: none;
           }
-          .materials {
-            flex: 1; min-height: 0;
-            display: flex; flex-direction: column; gap: 6px;
-            padding: 10px;
-          }
+
+          .materials { flex: 1; min-height: 0; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
           .mat-grid {
-            flex: 1; min-height: 0;
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 6px;
-            overflow-y: auto;
+            flex: 1; min-height: 0; overflow-y: auto;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-content: start;
           }
           .mat {
-            display: flex; flex-direction: column; align-items: center; gap: 4px;
-            padding: 7px 3px;
-            font-size: 11px; color: var(--text);
-            background: var(--panel-2);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            cursor: pointer;
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px; min-height: 44px;
+            background: var(--panel2); border: 1px solid var(--border);
+            border-radius: 9px; color: var(--text);
+            font-size: 12px; font-weight: 600; text-align: left;
           }
-          .mat:active { transform: scale(.97); }
+          .mat.on { border-color: var(--accent); }
           .mat .sw {
-            width: 24px; height: 24px; border-radius: 50%;
-            border: 1px solid rgba(255, 255, 255, .12);
+            width: 22px; height: 22px; border-radius: 50%;
+            flex: 0 0 auto; border: 1px solid rgba(255, 255, 255, .15);
           }
-          .mat-sliders {
-            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-          }
+          .mat-sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-          /* ---------- Loader ---------- */
-          .loader {
+          /* ---------- Overlays ---------- */
+          .overlay {
             position: fixed; inset: 0;
-            background: rgba(9, 10, 13, .75);
+            background: rgba(6, 7, 10, .72);
             display: flex; align-items: center; justify-content: center;
-            z-index: 20;
+            z-index: 20; padding: 16px;
           }
-          .loader-box {
-            background: var(--panel);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 18px 22px;
-            min-width: 240px;
-            display: flex; flex-direction: column; align-items: center; gap: 10px;
+          .box {
+            background: var(--panel); border: 1px solid var(--border);
+            border-radius: 14px; padding: 22px;
+            max-width: 480px; width: 100%;
+            display: flex; flex-direction: column; gap: 14px;
           }
+          .box h3 { font-size: 17px; }
+          .box p { color: var(--muted); line-height: 1.5; }
+          .tut-title { font-size: 22px; font-weight: 700; }
+          .text {
+            background: var(--bg); color: var(--text);
+            border: 1px solid var(--border); border-radius: 9px;
+            padding: 10px 12px; font: inherit; width: 100%;
+          }
+          .dots { display: flex; gap: 6px; }
+          .dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+          .dots i.on { background: var(--accent); }
+
+          .loader-box { align-items: center; min-width: 260px; text-align: center; }
           .spinner {
-            width: 28px; height: 28px; border-radius: 50%;
-            border: 3px solid var(--border);
-            border-top-color: var(--accent);
+            width: 30px; height: 30px; border-radius: 50%;
+            border: 3px solid var(--border); border-top-color: var(--accent);
             animation: spin .8s linear infinite;
           }
           @keyframes spin { to { transform: rotate(360deg); } }
-          .bar { width: 100%; height: 4px; background: var(--border); border-radius: 4px; overflow: hidden; }
+          .bar { width: 100%; height: 5px; background: var(--border); border-radius: 4px; overflow: hidden; }
           .bar div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
 
-          /* ---------- Toast ---------- */
           .toast {
             position: fixed; left: 50%; bottom: 14px;
             transform: translate(-50%, 16px);
             opacity: 0; transition: .2s ease;
-            padding: 8px 14px; border-radius: 10px;
-            background: #1d2129; border: 1px solid var(--border);
-            font-size: 12px; pointer-events: none; z-index: 30;
+            padding: 9px 16px; border-radius: 10px;
+            background: #1e222b; border: 1px solid var(--border);
+            font-size: 13px; pointer-events: none; z-index: 30;
             max-width: 90vw; text-align: center;
           }
           .toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -414,6 +536,7 @@ jobs:
           import './style.css';
           import * as THREE from 'three';
           import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+          import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
           import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
           import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
           import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -423,36 +546,43 @@ jobs:
           import { Share } from '@capacitor/share';
 
           const S = 1024;
-          const $ = (id) => document.getElementById(id);
-          const yieldNow = () => new Promise((r) => setTimeout(r, 0));
-          const frameTick = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
-          const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-          const grayHex = (v) => { const h = v.toString(16).padStart(2, '0'); return `#${h}${h}${h}`; };
-          const safeName = (s) => (s || 'modelo').replace(/[^\w\-]+/g, '_');
+          const MAP_KEYS = ['albedo', 'height', 'rough', 'normal'];
+          const DEFAULT_FILL = { albedo: '#b8bcc4', height: '#808080', rough: '#808080', normal: '#8080ff' };
+          const CH_NAMES = { albedo: 'Color', height: 'Altura', rough: 'Rugosidad', normal: 'Normal' };
 
-          // ---------- Toast y loader ----------
+          const $ = (id) => document.getElementById(id);
+          const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+          const sleep0 = () => new Promise((r) => setTimeout(r, 0));
+          const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+          const hex2rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+          const toHex = (r, g, b) => '#' + [r, g, b].map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, '0')).join('');
+          const grayHex = (v) => toHex(v, v, v);
+          const safeName = (s) => (s || 'modelo').replace(/[^\w\-]+/g, '_');
+          const uid = () => 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+          // ---------- Utilidades de UI ----------
           let toastTimer;
           function toast(msg) {
             const t = $('toast');
             t.textContent = msg;
             t.classList.add('show');
             clearTimeout(toastTimer);
-            toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+            toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
           }
 
           const loader = {
-            el: $('loader'),
-            bar: $('loaderBar'),
-            text: $('loaderText'),
-            show(msg) { this.text.textContent = msg; this.bar.style.width = '0%'; this.el.hidden = false; },
-            set(pct, msg) { if (msg) this.text.textContent = msg; this.bar.style.width = pct + '%'; },
-            hide() { this.el.hidden = true; }
+            show(msg) { $('loaderText').textContent = msg; $('loaderBar').style.width = '0%'; $('loader').hidden = false; },
+            set(p, msg) {
+              if (msg) $('loaderText').textContent = msg;
+              $('loaderBar').style.width = clamp(p, 0, 100) + '%';
+            },
+            hide() { $('loader').hidden = true; }
           };
 
           async function busy(msg, fn) {
             loader.show(msg);
             try {
-              await frameTick();
+              await nextFrame();
               return await fn();
             } catch (err) {
               console.error(err);
@@ -462,46 +592,132 @@ jobs:
             }
           }
 
-          // ---------- Estado ----------
-          const brush = {
-            tool: 'brush',
-            size: 24,
-            opacity: 1,
-            color: '#9aa4b2',
-            gray: 128,
-            normalStrength: 4,
-            showUV: true
-          };
-          const dirty = { albedo: false, height: false, rough: false, normal: false };
-          const CH_NAMES = { albedo: 'Color', height: 'Altura', rough: 'Rugosa', normal: 'Normal' };
-          let model = null;
-          let modelName = 'modelo';
-          let currentCh = 'albedo';
-
-          // ---------- Canvas de mapas ----------
-          function makeCanvas(fill, key, transparent = false) {
-            const c = document.createElement('canvas');
-            c.width = c.height = S;
-            c.dataset.key = key;
-            const ctx = c.getContext('2d', { willReadFrequently: true });
-            if (!transparent) {
-              ctx.fillStyle = fill;
-              ctx.fillRect(0, 0, S, S);
-            }
-            return c;
+          function ask({ title, text = '', input = null, ok = 'Aceptar', danger = false }) {
+            return new Promise((res) => {
+              $('mTitle').textContent = title;
+              $('mText').textContent = text;
+              const inp = $('mInput');
+              inp.hidden = input === null;
+              if (input !== null) inp.value = input;
+              const okBtn = $('mOk');
+              okBtn.textContent = ok;
+              okBtn.className = 'btn ' + (danger ? 'danger' : 'primary');
+              $('modal').hidden = false;
+              if (input !== null) setTimeout(() => { inp.focus(); inp.select(); }, 50);
+              const done = (val) => {
+                $('modal').hidden = true;
+                okBtn.onclick = null;
+                $('mCancel').onclick = null;
+                res(val);
+              };
+              okBtn.onclick = () => done(input !== null ? (inp.value.trim() || null) : true);
+              $('mCancel').onclick = () => done(null);
+            });
           }
 
-          const canvases = {
-            albedo: makeCanvas('#d9d9d9', 'albedo'),
-            height: makeCanvas('#808080', 'height'),
-            rough: makeCanvas('#808080', 'rough'),
-            normal: makeCanvas('#8080ff', 'normal')
-          };
-          const overlay = makeCanvas('', 'overlay', true);
-          overlay.classList.add('overlay');
+          // ---------- Tutorial ----------
+          const TUT = [
+            { t: 'Bienvenido a UV Studio', d: 'Desenvuelve tus modelos, pinta sus texturas y exporta mapas PBR listos para tu motor 3D.' },
+            { t: '1. Crea un proyecto', d: 'Pulsa "Nuevo proyecto" y elige un archivo GLB, GLTF o FBX. Tus proyectos se guardan en el teléfono.' },
+            { t: '2. UV automáticos', d: 'Si tu modelo no trae UV, la app los crea sola. Si ya los trae desde Blender, se respetan.' },
+            { t: '3. Pinta sobre el UV', d: 'Con un dedo pintas. Con dos dedos haces zoom y mueves el mapa. Usa "Mover" para navegar sin pintar.' },
+            { t: '4. Color, altura y rugosidad', d: 'Elige el color en el círculo. Pinta altura para crear relieve y rugosidad para controlar el brillo. También puedes importar tu propia imagen.' },
+            { t: '5. Materiales realistas', d: 'Toca un material para aplicarlo: metal, roca, madera, concreto y más. Ajusta metálico y rugosidad a tu gusto.' },
+            { t: '6. Exporta', d: 'GLB para llevarte el modelo con sus texturas, o ZIP con los PNG separados.' }
+          ];
+          let tutI = 0;
+          function showTut() { tutI = 0; renderTut(); $('tutorial').hidden = false; }
+          function renderTut() {
+            const s = TUT[tutI];
+            $('tutTitle').textContent = s.t;
+            $('tutText').textContent = s.d;
+            $('tutDots').innerHTML = TUT.map((_, i) => `<i class="${i === tutI ? 'on' : ''}"></i>`).join('');
+            $('tutPrev').disabled = tutI === 0;
+            $('tutNext').textContent = tutI === TUT.length - 1 ? 'Empezar' : 'Siguiente';
+          }
+          function closeTut() {
+            $('tutorial').hidden = true;
+            try { localStorage.setItem('uvs_tut', '1'); } catch (_) {}
+          }
+          $('tutNext').onclick = () => { if (tutI >= TUT.length - 1) return closeTut(); tutI++; renderTut(); };
+          $('tutPrev').onclick = () => { if (tutI > 0) { tutI--; renderTut(); } };
+          $('tutSkip').onclick = closeTut;
+          $('btnHelp').onclick = showTut;
+          $('btnHelp2').onclick = showTut;
+
+          // ---------- Base de datos (IndexedDB) ----------
+          const DB = (() => {
+            let dbp = null;
+            const open = () => (dbp ??= new Promise((res, rej) => {
+              const r = indexedDB.open('uvstudio', 1);
+              r.onupgradeneeded = () => {
+                r.result.createObjectStore('meta', { keyPath: 'id' });
+                r.result.createObjectStore('data', { keyPath: 'id' });
+              };
+              r.onsuccess = () => res(r.result);
+              r.onerror = () => rej(r.error);
+            }));
+            async function req(store, mode, fn) {
+              const db = await open();
+              return new Promise((res, rej) => {
+                const t = db.transaction(store, mode);
+                const rq = fn(t.objectStore(store));
+                t.oncomplete = () => res(rq ? rq.result : undefined);
+                t.onerror = () => rej(t.error);
+                t.onabort = () => rej(t.error);
+              });
+            }
+            return {
+              allMeta: () => req('meta', 'readonly', (s) => s.getAll()),
+              getMeta: (id) => req('meta', 'readonly', (s) => s.get(id)),
+              getData: (id) => req('data', 'readonly', (s) => s.get(id)),
+              async saveRec(meta, data) {
+                await req('meta', 'readwrite', (s) => s.put(meta));
+                if (data) await req('data', 'readwrite', (s) => s.put({ id: meta.id, ...data }));
+              },
+              async del(id) {
+                await req('meta', 'readwrite', (s) => s.delete(id));
+                await req('data', 'readwrite', (s) => s.delete(id));
+              }
+            };
+          })();
+
+          // ---------- Estado ----------
+          const brush = { tool: 'brush', size: 24, opacity: 1, color: '#b08a5e', gray: 128, normalStrength: 4, showUV: true };
+          const dirty = { albedo: false, rough: false, normal: false };
+          let model = null;
+          let current = null; // { id, name, ext, dirtyModel }
+          let currentCh = 'albedo';
+          let screen = 'projects';
+
+          // ---------- Canvas de mapas ----------
+          const canvases = {};
+          for (const k of MAP_KEYS) {
+            const c = document.createElement('canvas');
+            c.width = c.height = S;
+            c.dataset.key = k;
+            canvases[k] = c;
+          }
+          const overlay = document.createElement('canvas');
+          overlay.width = overlay.height = S;
+          overlay.className = 'overlay';
+          const wrap = $('wrap');
           const stage = $('stage');
-          for (const c of Object.values(canvases)) stage.appendChild(c);
+          for (const k of MAP_KEYS) stage.appendChild(canvases[k]);
           stage.appendChild(overlay);
+
+          const ctxOf = (k) => (k === 'overlay' ? overlay : canvases[k]).getContext('2d', { willReadFrequently: true });
+
+          function fillDefaults() {
+            for (const k of MAP_KEYS) {
+              const c = ctxOf(k);
+              c.fillStyle = DEFAULT_FILL[k];
+              c.fillRect(0, 0, S, S);
+            }
+          }
+          fillDefaults();
+
+          function markAllDirty() { dirty.albedo = dirty.rough = dirty.normal = true; }
 
           // ---------- Pintor ----------
           class Painter {
@@ -514,10 +730,6 @@ jobs:
               this.drawing = false;
               this.last = null;
               this.onCommit = null;
-              this.canvas.addEventListener('pointerdown', (e) => this.down(e));
-              this.canvas.addEventListener('pointermove', (e) => this.move(e));
-              this.canvas.addEventListener('pointerup', () => this.up());
-              this.canvas.addEventListener('pointercancel', () => this.up());
             }
 
             color() {
@@ -527,10 +739,7 @@ jobs:
 
             pos(e) {
               const r = this.canvas.getBoundingClientRect();
-              return {
-                x: (e.clientX - r.left) * (S / r.width),
-                y: (e.clientY - r.top) * (S / r.height)
-              };
+              return { x: (e.clientX - r.left) * (S / r.width), y: (e.clientY - r.top) * (S / r.height) };
             }
 
             style() {
@@ -546,12 +755,7 @@ jobs:
 
             snapshot() {
               this.history.push(this.ctx.getImageData(0, 0, S, S));
-              if (this.history.length > 10) this.history.shift();
-            }
-
-            commit() {
-              dirty[this.key] = true;
-              this.onCommit?.();
+              if (this.history.length > 8) this.history.shift();
             }
 
             undo() {
@@ -574,7 +778,6 @@ jobs:
               if (e.button > 0) return;
               this.snapshot();
               this.drawing = true;
-              this.canvas.setPointerCapture(e.pointerId);
               this.last = this.pos(e);
               this.style();
               this.ctx.beginPath();
@@ -603,19 +806,32 @@ jobs:
               this.last = null;
               this.commit();
             }
+
+            cancel() {
+              if (!this.drawing) return;
+              this.drawing = false;
+              this.last = null;
+              const img = this.history.pop();
+              if (img) this.ctx.putImageData(img, 0, 0);
+              dirty[this.key] = true;
+            }
+
+            commit() {
+              dirty[this.key] = true;
+              this.onCommit?.();
+              scheduleSave();
+            }
           }
 
           const painters = {
-            albedo: new Painter('albedo', '#d9d9d9'),
+            albedo: new Painter('albedo', DEFAULT_FILL.albedo),
             height: new Painter('height', '#808080'),
             rough: new Painter('rough', '#808080')
           };
 
           // ---------- Ruido procedural ----------
-          function hash2(x, y, s) {
-            const v = Math.sin(x * 127.1 + y * 311.7 + s * 17.3) * 43758.5453;
-            return v - Math.floor(v);
-          }
+          const fract = (x) => x - Math.floor(x);
+          const hash2 = (x, y, s) => fract(Math.sin(x * 127.1 + y * 311.7 + s * 17.3) * 43758.5453);
 
           function vnoise(x, y, s) {
             const xi = Math.floor(x), yi = Math.floor(y);
@@ -629,7 +845,7 @@ jobs:
           function fbm(x, y, oct, s) {
             let sum = 0, amp = 0.5, f = 1, norm = 0;
             for (let o = 0; o < oct; o++) {
-              sum += amp * vnoise(x * f, y * f, s + o);
+              sum += amp * vnoise(x * f, y * f, s + o * 3.1);
               norm += amp;
               amp *= 0.5;
               f *= 2;
@@ -637,72 +853,173 @@ jobs:
             return sum / norm;
           }
 
+          function cell(x, y, s) {
+            const xi = Math.floor(x), yi = Math.floor(y);
+            let best = 9;
+            for (let j = -1; j <= 1; j++) {
+              for (let i = -1; i <= 1; i++) {
+                const cx = xi + i, cy = yi + j;
+                const px = cx + hash2(cx, cy, s);
+                const py = cy + hash2(cx, cy, s + 7.7);
+                const d = Math.hypot(x - px, y - py);
+                if (d < best) best = d;
+              }
+            }
+            return best;
+          }
+
+          // Muestreo por tipo de material: salida en OUT = [altura, color, rugosidad]
+          const OUT = new Float32Array(3);
+          function sample(kind, u, v, s) {
+            let h = 0.5, c = 1, r = 0.5;
+            switch (kind) {
+              case 'polished': {
+                const n = fbm(u * 5, v * 5, 4, s);
+                const sc = vnoise(u * 300, v * 6, s + 3);
+                h = 0.5 + 0.2 * (n - 0.5) + 0.04 * (sc - 0.5);
+                c = 0.9 + 0.2 * n;
+                r = 0.06 + 0.22 * fbm(u * 10, v * 10, 3, s + 5);
+                break;
+              }
+              case 'brushed': {
+                const a = vnoise(u * 2, v * 500, s);
+                const b = vnoise(u * 6, v * 900, s + 2);
+                h = 0.5 + 0.1 * (a - 0.5) + 0.03 * (b - 0.5);
+                c = 0.8 + 0.2 * a + 0.1 * b;
+                r = 0.25 + 0.25 * b;
+                break;
+              }
+              case 'rock': {
+                const f = fbm(u * 4, v * 4, 6, s);
+                const rid = 1 - Math.abs(2 * f - 1);
+                h = 0.45 * f + 0.55 * rid * rid;
+                c = 0.55 + 0.5 * f - (rid > 0.85 ? 0.25 : 0);
+                r = 0.75 + 0.25 * fbm(u * 12, v * 12, 3, s + 2);
+                break;
+              }
+              case 'wood': {
+                const g = fbm(u * 3, v * 2, 3, s);
+                const ring = Math.sin((u * 14 + g * 4) * Math.PI * 2);
+                const grain = vnoise(u * 3, v * 300, s + 4);
+                h = 0.5 + 0.12 * ring + 0.1 * (grain - 0.5);
+                c = 0.62 + 0.22 * (ring * 0.5 + 0.5) + 0.14 * (grain - 0.5) + 0.1 * (g - 0.5);
+                r = 0.4 + 0.3 * grain;
+                break;
+              }
+              case 'plastic': {
+                const n = fbm(u * 3, v * 3, 2, s);
+                h = 0.5 + 0.02 * (n - 0.5);
+                c = 0.96 + 0.06 * n;
+                r = 0.3 + 0.2 * n;
+                break;
+              }
+              case 'concrete': {
+                const f = fbm(u * 14, v * 14, 5, s);
+                const p = vnoise(u * 180, v * 180, s + 8);
+                const pit = p > 0.78 ? 1 : 0;
+                h = 0.55 * f + 0.25 * p - 0.2 * pit + 0.1;
+                c = 0.75 + 0.35 * f - 0.12 * pit;
+                r = 0.85 + 0.15 * p;
+                break;
+              }
+              case 'paint': {
+                const p = vnoise(u * 150, v * 150, s + 1);
+                const n = fbm(u * 2, v * 2, 2, s);
+                h = 0.5 + 0.06 * (p - 0.5);
+                c = 0.93 + 0.1 * n;
+                r = 0.1 + 0.2 * p;
+                break;
+              }
+              case 'fabric': {
+                const w1 = 0.5 + 0.5 * Math.sin(u * Math.PI * 2 * 160);
+                const w2 = 0.5 + 0.5 * Math.sin(v * Math.PI * 2 * 160);
+                const n = fbm(u * 6, v * 6, 2, s);
+                h = 0.3 + 0.35 * (w1 + w2) / 2 + 0.2 * n;
+                c = 0.8 + 0.2 * (w1 * w2) + 0.1 * n;
+                r = 0.9 + 0.1 * n;
+                break;
+              }
+              case 'leather': {
+                const d = cell(u * 24, v * 24, s);
+                h = 1 - d * 0.9;
+                c = 0.7 + 0.25 * fbm(u * 6, v * 6, 3, s) + 0.1 * (1 - d);
+                r = 0.45 + 0.25 * fbm(u * 8, v * 8, 2, s + 1);
+                break;
+              }
+            }
+            OUT[0] = clamp(h, 0, 1);
+            OUT[1] = clamp(c, 0, 1.2);
+            OUT[2] = clamp(r, 0, 1);
+          }
+
           // ---------- Materiales ----------
-          const MATERIALS = [
-            { id: 'metal', name: 'Metal pulido', metalness: 1, base: '#c8ced8', rough: [0.08, 0.22], bump: 0.10, fx: 6, fy: 6, pattern: 'noise', octaves: 3 },
-            { id: 'brushed', name: 'Metal cepillado', metalness: 1, base: '#b9c0ca', rough: [0.25, 0.45], bump: 0.06, fx: 2, fy: 90, pattern: 'noise', octaves: 2 },
-            { id: 'rock', name: 'Roca', metalness: 0, base: '#7d766b', rough: [0.75, 1], bump: 0.9, fx: 5, fy: 5, pattern: 'noise', octaves: 5 },
-            { id: 'wood', name: 'Madera', metalness: 0, base: '#8a5a33', rough: [0.45, 0.7], bump: 0.25, fx: 1.5, fy: 24, pattern: 'wood', octaves: 3 },
-            { id: 'plastic', name: 'Plástico', metalness: 0, base: '#e2e6ec', rough: [0.35, 0.45], bump: 0.02, fx: 4, fy: 4, pattern: 'noise', octaves: 2 },
-            { id: 'concrete', name: 'Concreto', metalness: 0, base: '#9a9a96', rough: [0.85, 1], bump: 0.5, fx: 12, fy: 12, pattern: 'noise', octaves: 5 },
-            { id: 'paint', name: 'Pintura auto', metalness: 0.3, base: '#2b5ea8', rough: [0.12, 0.2], bump: 0.03, fx: 3, fy: 3, pattern: 'noise', octaves: 2 },
-            { id: 'fabric', name: 'Tela', metalness: 0, base: '#5c6b58', rough: [0.9, 1], bump: 0.2, fx: 64, fy: 64, pattern: 'weave', octaves: 2 }
+          const MATS = [
+            { name: 'Acero pulido', kind: 'polished', base: '#c5cbd3', metal: 1, rs: 1, nStr: 2 },
+            { name: 'Aluminio cepillado', kind: 'brushed', base: '#c9cdd2', metal: 1, rs: 1, nStr: 1.5 },
+            { name: 'Oro', kind: 'polished', base: '#e3b865', metal: 1, rs: 1.4, nStr: 1 },
+            { name: 'Cobre', kind: 'polished', base: '#d4875a', metal: 1, rs: 1.6, nStr: 1 },
+            { name: 'Roca', kind: 'rock', base: '#7a7266', metal: 0, rs: 1, nStr: 8 },
+            { name: 'Madera roble', kind: 'wood', base: '#8a5a33', metal: 0, rs: 1, nStr: 3 },
+            { name: 'Plástico', kind: 'plastic', base: '#dfe3e8', metal: 0, rs: 1, nStr: 1 },
+            { name: 'Concreto', kind: 'concrete', base: '#9d9b96', metal: 0, rs: 1, nStr: 5 },
+            { name: 'Pintura auto', kind: 'paint', base: '#2b5ea8', metal: 0.4, rs: 1, nStr: 0.8 },
+            { name: 'Cuero', kind: 'leather', base: '#4a2c1a', metal: 0, rs: 1, nStr: 3 },
+            { name: 'Tela', kind: 'fabric', base: '#5c6b58', metal: 0, rs: 1, nStr: 2 }
           ];
+          let activeMat = null;
 
           async function applyMaterial(m) {
+            if (!current) return toast('Abre un proyecto primero');
             await busy(`Generando ${m.name}…`, async () => {
-              Object.values(painters).forEach((p) => p.snapshot());
-              const [br, bg, bb] = hexToRgb(m.base);
-              const seed = Math.random() * 1000;
-              const aImg = canvases.albedo.getContext('2d').createImageData(S, S);
-              const hImg = canvases.height.getContext('2d').createImageData(S, S);
-              const rImg = canvases.rough.getContext('2d').createImageData(S, S);
-              const a = aImg.data, h = hImg.data, r = rImg.data;
-              const r0 = m.rough[0], r1 = m.rough[1];
+              for (const p of Object.values(painters)) p.snapshot();
+              const [br, bg, bb] = hex2rgb(m.base).map((v) => v / 255);
+              const seed = Math.random() * 100;
+              const A = ctxOf('albedo').createImageData(S, S);
+              const H = ctxOf('height').createImageData(S, S);
+              const R = ctxOf('rough').createImageData(S, S);
+              const a = A.data, h = H.data, r = R.data;
 
               for (let y = 0; y < S; y++) {
                 if (y % 32 === 0) {
                   loader.set(Math.round((y / S) * 100));
-                  await yieldNow();
+                  await sleep0();
                 }
                 const v = y / S;
                 for (let x = 0; x < S; x++) {
-                  const u = x / S;
-                  const n = fbm(u * m.fx, v * m.fy, m.octaves, seed);
-                  let p = n;
-                  if (m.pattern === 'wood') {
-                    p = 0.5 + 0.5 * Math.sin((v * m.fy + n * 6) * Math.PI * 2);
-                  } else if (m.pattern === 'weave') {
-                    const w = 0.5 + 0.5 * Math.sin(u * m.fx * Math.PI * 2) * Math.sin(v * m.fy * Math.PI * 2);
-                    p = 0.7 * w + 0.3 * n;
-                  }
+                  sample(m.kind, x / S, v, seed);
                   const i = (y * S + x) * 4;
-                  const shade = 0.78 + 0.44 * p;
-                  a[i] = br * shade;
-                  a[i + 1] = bg * shade;
-                  a[i + 2] = bb * shade;
+                  const cav = 0.85 + 0.15 * OUT[0];
+                  const shade = OUT[1] * cav;
+                  a[i] = br * shade * 255;
+                  a[i + 1] = bg * shade * 255;
+                  a[i + 2] = bb * shade * 255;
                   a[i + 3] = 255;
 
-                  const hv = 128 + (p - 0.5) * m.bump * 510;
+                  const hv = OUT[0] * 255;
                   h[i] = h[i + 1] = h[i + 2] = hv;
                   h[i + 3] = 255;
 
-                  const rv = (r0 + (r1 - r0) * (1 - p)) * 255;
+                  const rv = clamp(OUT[2] * m.rs, 0, 1) * 255;
                   r[i] = r[i + 1] = r[i + 2] = rv;
                   r[i + 3] = 255;
                 }
               }
 
-              canvases.albedo.getContext('2d').putImageData(aImg, 0, 0);
-              canvases.height.getContext('2d').putImageData(hImg, 0, 0);
-              canvases.rough.getContext('2d').putImageData(rImg, 0, 0);
-              dirty.albedo = true;
-              dirty.rough = true;
+              ctxOf('albedo').putImageData(A, 0, 0);
+              ctxOf('height').putImageData(H, 0, 0);
+              ctxOf('rough').putImageData(R, 0, 0);
+              brush.normalStrength = m.nStr;
+              $('strength').value = m.nStr;
+              $('strV').textContent = m.nStr.toFixed(1);
               bakeNormal();
+              markAllDirty();
 
-              material.metalness = m.metalness;
-              $('metal').value = m.metalness;
+              activeMat = m;
+              material.metalness = m.metal;
+              $('metal').value = m.metal;
               material.roughness = +$('roughScale').value;
+              document.querySelectorAll('.mat').forEach((b) => b.classList.toggle('on', b.dataset.name === m.name));
+              scheduleSave();
               toast(`${m.name} aplicado`);
             });
           }
@@ -713,9 +1030,10 @@ jobs:
           renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
           renderer.outputColorSpace = THREE.SRGBColorSpace;
           renderer.toneMapping = THREE.ACESFilmicToneMapping;
+          renderer.toneMappingExposure = 1.05;
 
           const scene = new THREE.Scene();
-          scene.background = new THREE.Color(0x0b0d11);
+          scene.background = new THREE.Color(0x0a0c10);
           const pmrem = new THREE.PMREMGenerator(renderer);
           scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
@@ -727,13 +1045,13 @@ jobs:
 
           const grid = new THREE.GridHelper(10, 20, 0x4f8cff, 0x262c38);
           grid.material.transparent = true;
-          grid.material.opacity = 0.5;
+          grid.material.opacity = 0.4;
           scene.add(grid);
 
-          const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
+          const keyLight = new THREE.DirectionalLight(0xffffff, 1.3);
           keyLight.position.set(3, 5, 4);
           scene.add(keyLight);
-          scene.add(new THREE.HemisphereLight(0xffffff, 0x222833, 0.6));
+          scene.add(new THREE.HemisphereLight(0xffffff, 0x222833, 0.5));
 
           const modelGroup = new THREE.Group();
           scene.add(modelGroup);
@@ -755,8 +1073,8 @@ jobs:
             metalness: 0
           });
 
-          // ---------- UV profesional por islas ----------
-          const COS_LIMIT = 0.75;
+          // ---------- Desenrollado UV por islas ----------
+          const COS_LIMIT = 0.6;
 
           function buildCharts(it, q) {
             const { wp, F } = it;
@@ -833,7 +1151,7 @@ jobs:
               groups.push(faces);
             }
 
-            // Proyección de cada isla sobre su plano
+            // Proyección de cada isla sobre su plano promedio
             const charts = [];
             for (const faces of groups) {
               let nx = 0, ny = 0, nz = 0;
@@ -905,14 +1223,14 @@ jobs:
               for (let i = 0; i < n; i++) {
                 v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
                 wp[i * 3] = v.x; wp[i * 3 + 1] = v.y; wp[i * 3 + 2] = v.z;
-                minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
-                minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
-                minZ = Math.min(minZ, v.z); maxZ = Math.max(maxZ, v.z);
+                if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x;
+                if (v.y < minY) minY = v.y; if (v.y > maxY) maxY = v.y;
+                if (v.z < minZ) minZ = v.z; if (v.z > maxZ) maxZ = v.z;
               }
               items.push({ mesh, src, geo, wp, F: Math.floor(n / 3), uvArr: null });
               if (mi % 3 === 2) {
                 loader.set(Math.round(10 * (mi + 1) / meshes.length), 'Leyendo mallas…');
-                await yieldNow();
+                await sleep0();
               }
             }
 
@@ -927,22 +1245,23 @@ jobs:
                 all.push(ch);
               }
               loader.set(10 + Math.round(60 * (mi + 1) / items.length), 'Creando islas UV…');
-              await yieldNow();
+              await sleep0();
             }
+            if (!all.length) throw new Error('No se pudieron crear islas UV');
 
             loader.set(72, 'Acomodando islas…');
-            await yieldNow();
+            await sleep0();
 
-            // Empaquetado tipo shelf con escala uniforme (misma densidad de texel)
+            // Empaquetado en un atlas cuadrado con densidad uniforme
             let area = 0, maxSide = 0;
             for (const ch of all) {
               area += ch.w * ch.h;
               maxSide = Math.max(maxSide, ch.w, ch.h);
             }
-            const pad = Math.max(Math.sqrt(area) * 0.012, 1e-9);
+            const pad = Math.max(Math.sqrt(area) * 0.01, 1e-9);
             let pArea = 0;
             for (const ch of all) pArea += (ch.w + pad) * (ch.h + pad);
-            const L = Math.max(Math.sqrt(pArea) * 1.08, maxSide + pad);
+            const L = Math.max(Math.sqrt(pArea) * 1.05, maxSide + pad);
 
             all.sort((a, b) => b.h - a.h);
             let x = 0, y = 0, row = 0, usedW = 0;
@@ -952,13 +1271,13 @@ jobs:
               ch.ox = x + pad * 0.5;
               ch.oy = y + pad * 0.5;
               x += w;
-              if (h > row) row = h;
-              if (x > usedW) usedW = x;
+              row = Math.max(row, h);
+              usedW = Math.max(usedW, x);
             }
-            const scale = 1 / Math.max(usedW, y + row, 1e-9);
+            const size = Math.max(usedW, y + row, 1e-9);
 
             loader.set(88, 'Aplicando UV…');
-            await yieldNow();
+            await sleep0();
 
             for (const it of items) it.uvArr = new Float32Array(it.F * 6);
             for (const ch of all) {
@@ -968,8 +1287,8 @@ jobs:
                 for (let k = 0; k < 3; k++) {
                   const j = (f * 3 + k) * 2;
                   const s = (i * 3 + k) * 2;
-                  arr[j] = (ch.ox + ch.uv2[s]) * scale;
-                  arr[j + 1] = (ch.oy + ch.uv2[s + 1]) * scale;
+                  arr[j] = (ch.ox + ch.uv2[s]) / size;
+                  arr[j + 1] = (ch.oy + ch.uv2[s + 1]) / size;
                 }
               }
             }
@@ -984,14 +1303,14 @@ jobs:
             loader.set(100, 'Listo');
           }
 
-          // ---------- Wireframe UV ----------
-          function drawWires(ctx, color, width) {
+          // ---------- Líneas UV ----------
+          function drawWires(ctx, root, color, width) {
             ctx.save();
             ctx.strokeStyle = color;
             ctx.lineWidth = width;
             ctx.beginPath();
             let budget = 300000;
-            model?.traverse((o) => {
+            root?.traverse((o) => {
               if (!o.isMesh || budget <= 0) return;
               const uv = o.geometry.attributes.uv;
               if (!uv) return;
@@ -1017,7 +1336,7 @@ jobs:
           function drawOverlay() {
             const ctx = overlay.getContext('2d');
             ctx.clearRect(0, 0, S, S);
-            drawWires(ctx, 'rgba(255,255,255,0.32)', 1);
+            drawWires(ctx, model, 'rgba(255,255,255,0.45)', 1.5);
           }
 
           function makeLayoutCanvas() {
@@ -1026,14 +1345,14 @@ jobs:
             const ctx = c.getContext('2d');
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, S, S);
-            drawWires(ctx, '#ffffff', 1);
+            drawWires(ctx, model, '#ffffff', 1.5);
             return c;
           }
 
           // ---------- Normal desde altura ----------
           function bakeNormal() {
-            const hd = canvases.height.getContext('2d').getImageData(0, 0, S, S).data;
-            const nctx = canvases.normal.getContext('2d');
+            const hd = ctxOf('height').getImageData(0, 0, S, S).data;
+            const nctx = ctxOf('normal');
             const out = nctx.createImageData(S, S);
             const o = out.data;
             const h = new Float32Array(S * S);
@@ -1061,9 +1380,20 @@ jobs:
             dirty.normal = true;
           }
 
-          painters.height.onCommit = bakeNormal;
+          // ---------- Modelos ----------
+          const gltfLoader = new GLTFLoader();
+          const fbxLoader = new FBXLoader();
 
-          // ---------- Modelo ----------
+          function parseModel(buf, ext) {
+            if (ext === 'demo') {
+              return Promise.resolve(new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.6).deleteAttribute('uv')));
+            }
+            if (ext === 'fbx') {
+              return new Promise((res) => res(fbxLoader.parse(buf, '')));
+            }
+            return new Promise((res, rej) => gltfLoader.parse(buf, '', (g) => res(g.scene), rej));
+          }
+
           function frame(obj) {
             const box = new THREE.Box3().setFromObject(obj);
             const size = box.getSize(new THREE.Vector3());
@@ -1079,72 +1409,304 @@ jobs:
             controls.update();
           }
 
-          function disposeTree(obj) {
-            obj.traverse((o) => o.geometry?.dispose?.());
-          }
-
           function updateInfo() {
             let meshes = 0, tris = 0;
-            model.traverse((o) => {
+            model?.traverse((o) => {
               if (!o.isMesh) return;
               meshes++;
               const g = o.geometry;
               tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
             });
-            $('info').textContent = `${modelName} · ${meshes} mallas · ${Math.round(tris).toLocaleString('es-MX')} tris`;
+            $('info').textContent = `${current?.name || 'modelo'} · ${meshes} mallas · ${Math.round(tris).toLocaleString('es-MX')} tris`;
           }
 
-          async function setModel(obj, name) {
+          function markDirtyModel() { if (current) current.dirtyModel = true; }
+
+          async function setModel(root, name) {
             if (model) {
               modelGroup.remove(model);
-              disposeTree(model);
+              model.traverse((o) => o.geometry?.dispose?.());
             }
-            model = obj;
-            modelName = name;
-            modelGroup.add(obj);
+            model = root;
+            modelGroup.add(root);
 
             let hasUV = true;
-            obj.traverse((o) => {
+            root.traverse((o) => {
               if (!o.isMesh) return;
               o.material = material;
               if (!o.geometry.attributes.uv) hasUV = false;
             });
 
-            frame(obj);
-            if (!hasUV) await unwrapModel(obj);
+            frame(root);
+            if (!hasUV) {
+              await unwrapModel(root);
+              markDirtyModel();
+            }
             updateInfo();
             drawOverlay();
           }
 
           async function reUnwrap() {
-            if (!model) return toast('Carga un modelo primero');
+            if (!model) return;
+            const ok = await ask({
+              title: 'Re-UV',
+              text: 'Esto cambia la distribución de las UV. La pintura que ya hiciste quedará desalineada. ¿Continuar?',
+              ok: 'Re-UV',
+              danger: true
+            });
+            if (!ok) return;
             await busy('Desenrollando UV…', async () => {
               await unwrapModel(model);
+              markDirtyModel();
               drawOverlay();
+              scheduleSave();
               toast('UV regenerados');
             });
           }
 
-          const gltfLoader = new GLTFLoader();
-          async function loadFile(file) {
-            const url = URL.createObjectURL(file);
-            try {
-              loader.show('Leyendo modelo…');
-              await frameTick();
-              const gltf = await gltfLoader.loadAsync(url, (ev) => {
-                if (ev.total) loader.set(Math.round((ev.loaded / ev.total) * 40), 'Leyendo modelo…');
-              });
-              loader.set(45, 'Preparando malla…');
-              await yieldNow();
-              await setModel(gltf.scene, file.name.replace(/\.(glb|gltf)$/i, ''));
-              toast('Modelo listo');
-            } finally {
-              loader.hide();
-              URL.revokeObjectURL(url);
+          // ---------- Mapas y guardado ----------
+          async function canvasBlob(cv, type = 'image/png') {
+            return new Promise((res, rej) =>
+              cv.toBlob((b) => (b ? res(b) : rej(new Error('No se pudo generar la imagen'))), type)
+            );
+          }
+
+          async function makeThumb() {
+            const c = document.createElement('canvas');
+            c.width = c.height = 256;
+            c.getContext('2d').drawImage(canvases.albedo, 0, 0, 256, 256);
+            return canvasBlob(c, 'image/jpeg');
+          }
+
+          async function loadMaps(maps) {
+            for (const k of MAP_KEYS) {
+              if (!maps[k]) continue;
+              const bmp = await createImageBitmap(maps[k]);
+              const ctx = ctxOf(k);
+              ctx.clearRect(0, 0, S, S);
+              ctx.drawImage(bmp, 0, 0, S, S);
+              bmp.close?.();
             }
           }
 
-          // ---------- Importar texturas ----------
+          function resetMaps() {
+            fillDefaults();
+            for (const p of Object.values(painters)) p.history = [];
+            markAllDirty();
+          }
+
+          let saveTimer = null;
+          let saveChain = Promise.resolve();
+
+          function scheduleSave() {
+            if (!current) return;
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(saveNow, 2000);
+          }
+
+          function saveNow() {
+            saveChain = saveChain.then(doSave).catch((e) => console.error('Guardado:', e));
+            return saveChain;
+          }
+
+          function exportBuffer() {
+            return new Promise((res, rej) =>
+              new GLTFExporter().parse(model, res, rej, { binary: true, embedImages: true, maxTextureSize: S })
+            );
+          }
+
+          async function doSave() {
+            if (!current) return;
+            const maps = {};
+            for (const k of MAP_KEYS) maps[k] = await canvasBlob(canvases[k]);
+            const meta = {
+              id: current.id,
+              name: current.name,
+              updated: Date.now(),
+              ext: current.ext,
+              metal: material.metalness,
+              roughS: +$('roughScale').value,
+              thumb: await makeThumb()
+            };
+            const data = { maps };
+            if (current.dirtyModel && model) {
+              const buf = await exportBuffer();
+              data.model = new Blob([buf]);
+              meta.ext = 'glb';
+              current.ext = 'glb';
+              current.dirtyModel = false;
+            } else {
+              const old = await DB.getData(current.id);
+              data.model = old?.model ?? null;
+            }
+            await DB.saveRec(meta, data);
+          }
+
+          // ---------- Proyectos ----------
+          function showScreen(name) {
+            screen = name;
+            $('screenProjects').hidden = name !== 'projects';
+            $('screenEditor').hidden = name !== 'editor';
+          }
+
+          async function renderProjects() {
+            const list = $('projList');
+            list.innerHTML = '';
+            const metas = (await DB.allMeta()).sort((a, b) => b.updated - a.updated);
+            $('projEmpty').hidden = metas.length > 0;
+            list.hidden = metas.length === 0;
+            for (const m of metas) {
+              const card = document.createElement('div');
+              card.className = 'card';
+              card.dataset.id = m.id;
+
+              const th = document.createElement('div');
+              th.className = 'thumb';
+              if (m.thumb) {
+                const img = new Image();
+                img.src = URL.createObjectURL(m.thumb);
+                th.appendChild(img);
+              }
+
+              const info = document.createElement('div');
+              info.className = 'meta';
+              const b = document.createElement('b');
+              b.textContent = m.name;
+              const sm = document.createElement('small');
+              const when = new Date(m.updated).toLocaleString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+              sm.textContent = `${when} · ${m.ext === 'demo' ? 'Caja' : m.ext.toUpperCase()}`;
+              info.append(b, sm);
+
+              const acts = document.createElement('div');
+              acts.className = 'card-actions';
+              acts.innerHTML =
+                '<button class="btn primary" data-a="open">Abrir</button>' +
+                '<button class="btn" data-a="rename">Renombrar</button>' +
+                '<button class="btn danger" data-a="del">Borrar</button>';
+
+              card.append(th, info, acts);
+              list.appendChild(card);
+            }
+          }
+
+          async function openProject(meta, data) {
+            loader.show('Abriendo proyecto…');
+            await nextFrame();
+
+            current = { id: meta.id, name: meta.name, ext: meta.ext, dirtyModel: false };
+            $('projName').textContent = meta.name;
+
+            resetMaps();
+            if (data?.maps) await loadMaps(data.maps);
+
+            const buf = data?.model && meta.ext !== 'demo' ? await data.model.arrayBuffer() : null;
+            const root = await parseModel(buf, meta.ext);
+            if (meta.ext === 'demo') current.dirtyModel = true;
+
+            material.metalness = meta.metal ?? 0;
+            $('metal').value = material.metalness;
+            $('roughScale').value = meta.roughS ?? 1;
+            material.roughness = +$('roughScale').value;
+
+            await setModel(root, meta.name);
+            if (!data?.maps) bakeNormal();
+            markAllDirty();
+
+            showScreen('editor');
+            layoutStage();
+            resetView();
+            drawOverlay();
+          }
+
+          async function openById(id) {
+            try {
+              const meta = await DB.getMeta(id);
+              if (!meta) return;
+              const data = await DB.getData(id);
+              await openProject(meta, data || {});
+            } catch (err) {
+              console.error(err);
+              toast('No se pudo abrir: ' + (err.message || err));
+            } finally {
+              loader.hide();
+            }
+          }
+
+          async function newDemo() {
+            const meta = { id: uid(), name: 'caja_prueba', updated: Date.now(), ext: 'demo', metal: 0, roughS: 1, thumb: null };
+            await DB.saveRec(meta, { model: null, maps: null });
+            await openById(meta.id);
+          }
+
+          async function closeProject() {
+            clearTimeout(saveTimer);
+            await busy('Guardando…', async () => { await saveNow(); });
+            current = null;
+            showScreen('projects');
+            await renderProjects();
+          }
+
+          $('projList').addEventListener('click', async (e) => {
+            const btn = e.target.closest('button[data-a]');
+            if (!btn) return;
+            const id = btn.closest('.card').dataset.id;
+            const a = btn.dataset.a;
+            if (a === 'open') return openById(id);
+            if (a === 'rename') {
+              const meta = await DB.getMeta(id);
+              const name = await ask({ title: 'Renombrar proyecto', input: meta.name, ok: 'Guardar' });
+              if (name) {
+                meta.name = name;
+                await DB.saveRec(meta);
+                await renderProjects();
+              }
+            }
+            if (a === 'del') {
+              const meta = await DB.getMeta(id);
+              const ok = await ask({
+                title: 'Borrar proyecto',
+                text: `Se borrará "${meta.name}" y sus mapas. Esta acción no se puede deshacer.`,
+                ok: 'Borrar',
+                danger: true
+              });
+              if (ok) {
+                await DB.del(id);
+                await renderProjects();
+                toast('Proyecto borrado');
+              }
+            }
+          });
+
+          $('btnDemo').addEventListener('click', () => busy('Creando proyecto…', newDemo));
+
+          $('fileIn').addEventListener('change', async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (!f) return;
+            const ext = (f.name.split('.').pop() || '').toLowerCase();
+            if (!['glb', 'gltf', 'fbx'].includes(ext)) {
+              toast('Formato no compatible. Usa GLB, GLTF o FBX');
+              return;
+            }
+            loader.show('Leyendo archivo…');
+            try {
+              await nextFrame();
+              const buf = await f.arrayBuffer();
+              const meta = { id: uid(), name: f.name.replace(/\.\w+$/, ''), updated: Date.now(), ext, metal: 0, roughS: 1, thumb: null };
+              await DB.saveRec(meta, { model: new Blob([buf]), maps: null });
+              await openById(meta.id);
+            } catch (err) {
+              console.error(err);
+              toast('No se pudo abrir: ' + (err.message || err));
+            } finally {
+              loader.hide();
+            }
+          });
+
+          $('btnBack').addEventListener('click', closeProject);
+          document.addEventListener('visibilitychange', () => { if (document.hidden && current) saveNow(); });
+
+          // ---------- Texturas importadas ----------
           function loadImage(file) {
             return new Promise((res, rej) => {
               const url = URL.createObjectURL(file);
@@ -1155,23 +1717,24 @@ jobs:
             });
           }
 
-          function drawCover(ctx, img) {
-            const s = Math.max(S / img.width, S / img.height);
-            const w = img.width * s, h = img.height * s;
-            ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
-          }
-
-          async function importTexture(file) {
+          $('imgIn').addEventListener('change', async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (!f || !current) return;
             await busy('Importando textura…', async () => {
-              const img = await loadImage(file);
+              const img = await loadImage(f);
               const ch = currentCh;
               painters[ch]?.snapshot();
-              drawCover(canvases[ch].getContext('2d'), img);
+              const cctx = ctxOf(ch);
+              const s = Math.max(S / img.width, S / img.height);
+              const w = img.width * s, h = img.height * s;
+              cctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
               if (ch === 'height') bakeNormal();
-              dirty[ch] = true;
+              markAllDirty();
+              scheduleSave();
               toast(`Textura importada en ${CH_NAMES[ch]}`);
             });
-          }
+          });
 
           // ---------- Exportar ----------
           function blobToBase64(blob) {
@@ -1195,28 +1758,20 @@ jobs:
             a.href = url;
             a.download = name;
             a.click();
-            setTimeout(() => URL.revokeObjectURL(url), 2000);
-          }
-
-          function canvasBlob(cv) {
-            return new Promise((res, rej) =>
-              cv.toBlob((b) => (b ? res(b) : rej(new Error('No se pudo generar PNG'))), 'image/png')
-            );
+            setTimeout(() => URL.revokeObjectURL(url), 3000);
           }
 
           async function exportGLB() {
-            if (!model) return toast('Carga un modelo primero');
+            if (!model) return toast('Abre un proyecto primero');
             await busy('Generando GLB…', async () => {
-              const exporter = new GLTFExporter();
-              const buf = await new Promise((res, rej) =>
-                exporter.parse(model, res, rej, { binary: true, embedImages: true, maxTextureSize: S })
-              );
-              await saveBlob(`${safeName(modelName)}.glb`, new Blob([buf], { type: 'model/gltf-binary' }));
-              toast('GLB exportado');
+              const buf = await exportBuffer();
+              await saveBlob(`${safeName(current?.name)}.glb`, new Blob([buf], { type: 'model/gltf-binary' }));
+              toast('GLB listo');
             });
           }
 
           async function exportZIP() {
+            if (!model) return toast('Abre un proyecto primero');
             await busy('Empaquetando mapas…', async () => {
               const zip = new JSZip();
               const files = {
@@ -1232,7 +1787,7 @@ jobs:
               zip.file(
                 'README.txt',
                 'UV Studio - mapas 1024x1024 PNG\n' +
-                'albedo.png: color base\n' +
+                'albedo.png: color base (sRGB)\n' +
                 'normal.png: normal map (convención OpenGL, +Y arriba)\n' +
                 'roughness.png: blanco = más rugoso\n' +
                 'height.png: altura usada para generar la normal\n' +
@@ -1240,12 +1795,240 @@ jobs:
                 `metalness: ${material.metalness}\n`
               );
               const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-              await saveBlob(`${safeName(modelName)}_maps.zip`, blob);
-              toast('ZIP exportado');
+              await saveBlob(`${safeName(current?.name)}_maps.zip`, blob);
+              toast('ZIP listo');
             });
           }
 
-          // ---------- UI ----------
+          $('btnGLB').addEventListener('click', exportGLB);
+          $('btnZIP').addEventListener('click', exportZIP);
+          $('btnReuv').addEventListener('click', reUnwrap);
+          $('btnImgDummy')?.addEventListener('click', () => {});
+
+          // ---------- Vista de editor: zoom, paneo y pintura ----------
+          const view = { s: 1, x: 0, y: 0 };
+          const base = { x: 0, y: 0, size: 300 };
+          const ptrs = new Map();
+          let gest = null;
+
+          function applyView() {
+            stage.style.left = (base.x + view.x) + 'px';
+            stage.style.top = (base.y + view.y) + 'px';
+            stage.style.transform = `scale(${view.s})`;
+            $('zoomLbl').textContent = Math.round(view.s * 100) + '%';
+          }
+
+          function layoutStage() {
+            const r = wrap.getBoundingClientRect();
+            if (!r.width || !r.height) return;
+            const size = Math.floor(Math.min(r.width, r.height) - 16);
+            base.x = (r.width - size) / 2;
+            base.y = (r.height - size) / 2;
+            base.size = size;
+            stage.style.width = size + 'px';
+            stage.style.height = size + 'px';
+            applyView();
+          }
+
+          function resetView() {
+            view.s = 1; view.x = 0; view.y = 0;
+            applyView();
+          }
+
+          new ResizeObserver(() => layoutStage()).observe(wrap);
+
+          function startPinch() {
+            const [a, b] = [...ptrs.values()];
+            const r = wrap.getBoundingClientRect();
+            const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+            const ox = base.x + view.x, oy = base.y + view.y;
+            gest = {
+              type: 'pinch',
+              d: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+              s: view.s,
+              px: (mx - ox) / view.s,
+              py: (my - oy) / view.s
+            };
+          }
+
+          function pinchMove() {
+            if (!gest || gest.type !== 'pinch') return;
+            const [a, b] = [...ptrs.values()];
+            const r = wrap.getBoundingClientRect();
+            const d = Math.hypot(a.x - b.x, a.y - b.y);
+            const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+            const ns = clamp(gest.s * d / gest.d, 0.6, 8);
+            view.s = ns;
+            view.x = mx - gest.px * ns - base.x;
+            view.y = my - gest.py * ns - base.y;
+            applyView();
+          }
+
+          wrap.addEventListener('pointerdown', (e) => {
+            wrap.setPointerCapture(e.pointerId);
+            ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            const p = painters[currentCh];
+            if (ptrs.size === 1) {
+              if (brush.tool !== 'pan' && p) p.down(e);
+              else gest = { type: 'pan', x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+            } else if (ptrs.size === 2) {
+              p?.cancel();
+              startPinch();
+            }
+          });
+
+          wrap.addEventListener('pointermove', (e) => {
+            if (!ptrs.has(e.pointerId)) return;
+            ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (ptrs.size >= 2) return pinchMove();
+            if (gest?.type === 'pan') {
+              view.x = gest.vx + (e.clientX - gest.x);
+              view.y = gest.vy + (e.clientY - gest.y);
+              applyView();
+              return;
+            }
+            painters[currentCh]?.move(e);
+          });
+
+          const endPointer = (e) => {
+            if (!ptrs.has(e.pointerId)) return;
+            ptrs.delete(e.pointerId);
+            if (ptrs.size === 0) {
+              painters[currentCh]?.up();
+              gest = null;
+            } else if (ptrs.size === 1) {
+              const [p] = [...ptrs.values()];
+              gest = { type: 'pan', x: p.x, y: p.y, vx: view.x, vy: view.y };
+            }
+          };
+          wrap.addEventListener('pointerup', endPointer);
+          wrap.addEventListener('pointercancel', endPointer);
+
+          wrap.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const r = wrap.getBoundingClientRect();
+            const mx = e.clientX - r.left, my = e.clientY - r.top;
+            const ox = base.x + view.x, oy = base.y + view.y;
+            const px = (mx - ox) / view.s, py = (my - oy) / view.s;
+            const ns = clamp(view.s * (e.deltaY < 0 ? 1.12 : 0.89), 0.6, 8);
+            view.s = ns;
+            view.x = mx - px * ns - base.x;
+            view.y = my - py * ns - base.y;
+            applyView();
+          }, { passive: false });
+
+          $('btnFit').addEventListener('click', resetView);
+
+          // ---------- Rueda de color ----------
+          const wheel = $('wheel');
+          const wctx = wheel.getContext('2d');
+          const WR = wheel.width / 2;
+          let wheelImg = null;
+          const wc = { hue: 30, sat: 0.5 };
+          let wheelDrag = false;
+
+          function hsv(h, s, v) {
+            const c = v * s;
+            const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+            const m = v - c;
+            let r = 0, g = 0, b = 0;
+            if (h < 60) [r, g, b] = [c, x, 0];
+            else if (h < 120) [r, g, b] = [x, c, 0];
+            else if (h < 180) [r, g, b] = [0, c, x];
+            else if (h < 240) [r, g, b] = [0, x, c];
+            else if (h < 300) [r, g, b] = [x, 0, c];
+            else [r, g, b] = [c, 0, x];
+            return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+          }
+
+          function buildWheel() {
+            const W = wheel.width;
+            wheelImg = wctx.createImageData(W, W);
+            const d = wheelImg.data;
+            for (let y = 0; y < W; y++) {
+              for (let x = 0; x < W; x++) {
+                const dx = x + 0.5 - WR, dy = y + 0.5 - WR;
+                const r = Math.hypot(dx, dy) / WR;
+                const i = (y * W + x) * 4;
+                if (r > 1) { d[i + 3] = 0; continue; }
+                let ang = Math.atan2(dy, dx) * 180 / Math.PI;
+                if (ang < 0) ang += 360;
+                const [R, G, B] = hsv(ang, r, 1);
+                d[i] = R; d[i + 1] = G; d[i + 2] = B; d[i + 3] = 255;
+              }
+            }
+            drawWheel();
+          }
+
+          function drawWheel() {
+            wctx.putImageData(wheelImg, 0, 0);
+            const a = wc.hue * Math.PI / 180;
+            const r = wc.sat * WR;
+            const x = WR + Math.cos(a) * r, y = WR + Math.sin(a) * r;
+            wctx.beginPath();
+            wctx.arc(x, y, 8, 0, Math.PI * 2);
+            wctx.lineWidth = 3;
+            wctx.strokeStyle = '#fff';
+            wctx.stroke();
+            wctx.lineWidth = 1;
+            wctx.strokeStyle = '#000';
+            wctx.stroke();
+          }
+
+          function setColor(hex) {
+            brush.color = hex;
+            $('colorPrev').style.background = hex;
+            if (brush.tool === 'eraser') {
+              brush.tool = 'brush';
+              syncTools();
+            }
+          }
+
+          function applyWheelColor() {
+            const v = +$('bright').value;
+            const [r, g, b] = hsv(wc.hue, wc.sat, v);
+            setColor(toHex(r, g, b));
+          }
+
+          function wheelPick(e) {
+            const r = wheel.getBoundingClientRect();
+            const x = (e.clientX - r.left) * (wheel.width / r.width);
+            const y = (e.clientY - r.top) * (wheel.height / r.height);
+            const dx = x - WR, dy = y - WR;
+            const d = Math.hypot(dx, dy) / WR;
+            let ang = Math.atan2(dy, dx) * 180 / Math.PI;
+            if (ang < 0) ang += 360;
+            wc.hue = ang;
+            wc.sat = Math.min(1, d);
+            drawWheel();
+            applyWheelColor();
+          }
+
+          wheel.addEventListener('pointerdown', (e) => {
+            wheelDrag = true;
+            wheel.setPointerCapture(e.pointerId);
+            wheelPick(e);
+          });
+          wheel.addEventListener('pointermove', (e) => { if (wheelDrag) wheelPick(e); });
+          wheel.addEventListener('pointerup', () => { wheelDrag = false; });
+          wheel.addEventListener('pointercancel', () => { wheelDrag = false; });
+
+          $('bright').addEventListener('input', applyWheelColor);
+
+          function buildSwatches() {
+            const cols = ['#ffffff', '#c9c9c9', '#7a7a7a', '#1c1c1c', '#c0392b', '#e67e22',
+                          '#f1c40f', '#27ae60', '#2980b9', '#8e44ad', '#8b5a2b', '#d2b48c'];
+            const box = $('swatches');
+            for (const c of cols) {
+              const b = document.createElement('button');
+              b.style.background = c;
+              b.title = c;
+              b.addEventListener('click', () => setColor(c));
+              box.appendChild(b);
+            }
+          }
+
+          // ---------- Herramientas y canales ----------
           function syncTools() {
             document.querySelectorAll('[data-tool]').forEach((b) =>
               b.classList.toggle('on', b.dataset.tool === brush.tool)
@@ -1257,8 +2040,11 @@ jobs:
             document.querySelectorAll('[data-ch]').forEach((b) =>
               b.classList.toggle('active', b.dataset.ch === ch)
             );
-            for (const [k, c] of Object.entries(canvases)) c.classList.toggle('show', k === ch);
+            for (const k of MAP_KEYS) canvases[k].classList.toggle('show', k === ch);
             $('chTitle').textContent = CH_NAMES[ch];
+            $('hintTxt').textContent = ch === 'normal'
+              ? 'La normal se calcula desde Altura'
+              : 'Un dedo pinta · dos dedos mueven y hacen zoom';
             document.querySelectorAll('[data-show]').forEach((el) => {
               el.hidden = !el.dataset.show.split(' ').includes(ch);
             });
@@ -1267,10 +2053,16 @@ jobs:
 
           function buildMaterialGrid() {
             const grid = $('matGrid');
-            for (const m of MATERIALS) {
+            for (const m of MATS) {
               const b = document.createElement('button');
               b.className = 'mat';
-              b.innerHTML = `<span class="sw" style="background:${m.base}"></span><span>${m.name}</span>`;
+              b.dataset.name = m.name;
+              const sw = document.createElement('span');
+              sw.className = 'sw';
+              sw.style.background = m.base;
+              const tx = document.createElement('span');
+              tx.textContent = m.name;
+              b.append(sw, tx);
               b.addEventListener('click', () => applyMaterial(m));
               grid.appendChild(b);
             }
@@ -1283,12 +2075,16 @@ jobs:
             b.addEventListener('click', () => { brush.tool = b.dataset.tool; syncTools(); })
           );
 
-          $('size').addEventListener('input', (e) => (brush.size = +e.target.value));
-          $('opacity').addEventListener('input', (e) => (brush.opacity = e.target.value / 100));
-          $('color').addEventListener('input', (e) => (brush.color = e.target.value));
-          $('gray').addEventListener('input', (e) => (brush.gray = +e.target.value));
-          $('strength').addEventListener('input', (e) => (brush.normalStrength = +e.target.value));
+          const bindRange = (id, fn, label) => $(id).addEventListener('input', (e) => {
+            fn(+e.target.value);
+            if (label) label(e.target.value);
+          });
+          bindRange('size', (v) => (brush.size = v), (v) => ($('sizeV').textContent = v));
+          bindRange('opacity', (v) => (brush.opacity = v / 100), (v) => ($('opV').textContent = v));
+          bindRange('gray', (v) => (brush.gray = v), (v) => ($('grayV').textContent = v));
+          bindRange('strength', (v) => (brush.normalStrength = v), (v) => ($('strV').textContent = (+v).toFixed(1)));
           $('strength').addEventListener('change', bakeNormal);
+
           $('metal').addEventListener('input', (e) => (material.metalness = +e.target.value));
           $('roughScale').addEventListener('input', (e) => (material.roughness = +e.target.value));
 
@@ -1298,57 +2094,28 @@ jobs:
             const p = painters[currentCh];
             if (p) p.fill(p.color());
           });
-          $('btnBake').addEventListener('click', bakeNormal);
-          $('btnUnwrap').addEventListener('click', reUnwrap);
-          $('btnGLB').addEventListener('click', exportGLB);
-          $('btnZIP').addEventListener('click', exportZIP);
+          $('btnBake').addEventListener('click', () => { bakeNormal(); scheduleSave(); });
 
-          $('btnOverlay').addEventListener('click', (e) => {
-            brush.showUV = !brush.showUV;
-            stage.classList.toggle('no-uv', !brush.showUV);
-            e.currentTarget.classList.toggle('on', brush.showUV);
+          $('showUV').addEventListener('change', (e) => overlay.classList.toggle('hide', !e.target.checked));
+
+          $('btnFocus').addEventListener('click', (e) => {
+            const on = $('body').classList.toggle('focus');
+            e.currentTarget.textContent = on ? 'Mostrar paneles' : 'Enfocar UV';
           });
-
-          $('fileIn').addEventListener('change', async (e) => {
-            const f = e.target.files?.[0];
-            e.target.value = '';
-            if (!f) return;
-            try {
-              await loadFile(f);
-            } catch (err) {
-              console.error(err);
-              toast('No se pudo abrir: ' + (err.message || err));
-            }
-          });
-
-          $('imgIn').addEventListener('change', async (e) => {
-            const f = e.target.files?.[0];
-            e.target.value = '';
-            if (f) await importTexture(f);
-          });
-
-          // ---------- Arranque ----------
-          bakeNormal();
-          buildMaterialGrid();
-          setChannel('albedo');
-          setModel(
-            new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.6).deleteAttribute('uv'), material),
-            'demo_caja'
-          ).catch((err) => console.error(err));
 
           // ---------- Render ----------
-          function resize() {
+          const viewport3D = new ResizeObserver(() => {
             const w = viewportEl.clientWidth, h = viewportEl.clientHeight;
             if (!w || !h) return;
             renderer.setSize(w, h, false);
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
-          }
-          new ResizeObserver(resize).observe(viewportEl);
-          resize();
+          });
+          viewport3D.observe(viewportEl);
 
           function tick() {
             requestAnimationFrame(tick);
+            if (screen !== 'editor') return;
             for (const k of ['albedo', 'rough', 'normal']) {
               if (dirty[k]) {
                 textures[k].needsUpdate = true;
@@ -1358,9 +2125,24 @@ jobs:
             controls.update();
             renderer.render(scene, camera);
           }
-          tick();
 
+          // ---------- Arranque ----------
           document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+          (async function boot() {
+            buildSwatches();
+            buildWheel();
+            applyWheelColor();
+            buildMaterialGrid();
+            setChannel('albedo');
+            syncTools();
+            showScreen('projects');
+            tick();
+            await renderProjects();
+            let seen = null;
+            try { seen = localStorage.getItem('uvs_tut'); } catch (_) {}
+            if (!seen) showTut();
+          })();
           EOF
 
           echo "Proyecto generado:"
