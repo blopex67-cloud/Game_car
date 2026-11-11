@@ -879,7 +879,7 @@ jobs:
       - name: Configurar Godot para exportar Android
         run: |
           mkdir -p "$HOME/.config/godot"
-          cat > "$HOME/.config/godot/editor_settings-4.3.tres" << EOF_SETTINGS
+          cat > "$HOME/.config/godot/editor_settings-4.tres" << EOF_SETTINGS
           [gd_resource type="EditorSettings" format=3]
 
           [resource]
@@ -889,7 +889,7 @@ jobs:
           export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
           EOF_SETTINGS
-          cat "$HOME/.config/godot/editor_settings-4.3.tres"
+          cat "$HOME/.config/godot/editor_settings-4.tres"
 
       - name: Importar recursos y exportar APK
         env:
@@ -905,8 +905,8 @@ jobs:
       - name: Diagnóstico legible si falla
         if: failure()
         run: |
-          echo "=== ERROR DE EXPORTACIÓN (líneas cortas) ==="
-          grep -A8 -i "configuration errors\|cannot export\|error" export.log | fold -s -w 70 || true
+          echo "=== LOG COMPLETO DE EXPORTACIÓN ==="
+          if [ -f export.log ]; then cat export.log; else echo "No se generó export.log"; fi
           echo "=== Plantillas de exportación ==="
           ls -la "$HOME/.local/share/godot/export_templates/4.3.stable" || true
           echo "=== SDK de Android ==="
@@ -915,7 +915,7 @@ jobs:
           echo "=== Java ==="
           echo "JAVA_HOME=$JAVA_HOME"
           echo "=== Configuración del editor ==="
-          cat "$HOME/.config/godot/editor_settings-4.3.tres" || true
+          cat "$HOME/.config/godot/editor_settings-4.tres" || true
           echo "=== Keystore ==="
           ls -la "$HOME/debug.keystore" || true
 
