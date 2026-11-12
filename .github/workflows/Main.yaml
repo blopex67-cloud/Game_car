@@ -13,8 +13,6 @@ env:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    env:
-      GODOT_BIN: ${{ runner.temp }}/godot/Godot_v4.3-stable_linux.x86_64
     steps:
       - name: Descargar el código
         uses: actions/checkout@v4
@@ -39,7 +37,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/godot"
           curl -fL -o "$RUNNER_TEMP/godot/godot.zip" "$BASE/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.x86_64.zip"
           unzip -q -o "$RUNNER_TEMP/godot/godot.zip" -d "$RUNNER_TEMP/godot"
+          GODOT_BIN="$RUNNER_TEMP/godot/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_linux.x86_64"
           chmod +x "$GODOT_BIN"
+          echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
 
           curl -fL -o "$RUNNER_TEMP/godot/templates.tpz" "$BASE/Godot_v${GODOT_VERSION}-${GODOT_STATUS}_export_templates.tpz"
           TPL_DIR="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}"
