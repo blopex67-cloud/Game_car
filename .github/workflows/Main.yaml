@@ -162,6 +162,11 @@ jobs:
       - name: Importar proyecto y exportar APK
         run: |
           set -e
+          if [ ! -f scripts/main.gd ]; then
+            echo "ERROR: falta scripts/main.gd en el repositorio. Súbelo a la carpeta scripts/ y vuelve a lanzar el workflow."
+            exit 1
+          fi
+
           export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/debug.keystore"
           export GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey
           export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android
@@ -171,7 +176,7 @@ jobs:
 
           "$GODOT_BIN" --headless --path . --import
           mkdir -p build
-          "$GODOT_BIN" --headless --path . --export-debug "Android" build/Volumi3D.apk
+          "$GODOT_BIN" --headless --path . --export-debug "Android Debug" build/Volumi3D.apk
           test -f build/Volumi3D.apk
 
       - name: Subir APK
