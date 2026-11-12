@@ -171,6 +171,7 @@ jobs:
           export GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey
           export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android
 
+          sed -i "s|^package/signed=true|package/signed=true\nkeystore/debug=\"$HOME/debug.keystore\"\nkeystore/debug_user=\"androiddebugkey\"\nkeystore/debug_password=\"android\"|" export_presets.cfg
           sed -i "s|^version/code=.*|version/code=${GITHUB_RUN_NUMBER}|" export_presets.cfg
           sed -i "s|^version/name=.*|version/name=\"1.0.${GITHUB_RUN_NUMBER}\"|" export_presets.cfg
 
